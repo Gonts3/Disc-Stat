@@ -16,7 +16,8 @@ import {
   Smartphone,
   Award,
   ChevronRight,
-  Info
+  Info,
+  RotateCcw
 } from "lucide-react";
 import { Player, AttendanceRecord, PracticeLog, ScrimmageMatch } from "./types";
 import { DEFAULT_PLAYERS, exportToCSV, generateSingleFileHTML } from "./utils";
@@ -25,7 +26,21 @@ export default function App() {
   // --- Persistent States ---
   const [players, setPlayers] = useState<Player[]>(() => {
     const saved = localStorage.getItem("discforce_players");
-    return saved ? JSON.parse(saved) : DEFAULT_PLAYERS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.map(p => ({
+            ...p,
+            throwaways: p.throwaways ?? 0,
+            drops: p.drops ?? 0
+          }));
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return DEFAULT_PLAYERS;
   });
 
   const [attendance, setAttendance] = useState<AttendanceRecord[]>(() => {
@@ -44,9 +59,11 @@ export default function App() {
   });
 
   // --- UI States ---
-  const [currentTab, setCurrentTab] = useState<"roster" | "practice" | "scrimmage" | "stats" | "export">("roster");
+  const [currentTab, setCurrentTab] = useState<"roster" | "practice" | "scrimmage" | "export">("roster");
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>("");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [lastAction, setLastAction] = useState<{ playerId: string; field: keyof Omit<Player, "id" | "name">; prevValue: number } | null>(null);
+  const [filterPresentOnly, setFilterPresentOnly] = useState<boolean>(true);
 
   // --- Form States ---
   const [newPlayerName, setNewPlayerName] = useState("");
@@ -59,9 +76,9 @@ export default function App() {
   const [practiceNotes, setPracticeNotes] = useState("");
 
   const [matchDate, setMatchDate] = useState(() => new Date().toISOString().split("T")[0]);
-  const [matchOpponent, setMatchOpponent] = useState("");
-  const [ourScore, setOurScore] = useState(0);
-  const [theirScore, setTheirScore] = useState(0);
+  const [matchOpponent, setMatchOpponent] = useState("Light vs Dark");
+  const [lightScore, setLightScore] = useState(0);
+  const [darkScore, setDarkScore] = useState(0);
 
   // --- Synchronize with localStorage ---
   useEffect(() => {
@@ -114,7 +131,9 @@ export default function App() {
       goals: 0,
       assists: 0,
       ds: 0,
-      turnovers: 0
+      turnovers: 0,
+      throwaways: 0,
+      drops: 0
     };
 
     setPlayers([...players, newPlayer]);
@@ -181,22 +200,20 @@ export default function App() {
 
   const handleSaveMatch = (e: React.FormEvent) => {
     e.preventDefault();
-    const opponent = matchOpponent.trim();
-    if (!opponent) return;
+    const opponent = matchOpponent.trim() || "Light vs Dark";
 
     const newMatch: ScrimmageMatch = {
       id: Math.random().toString(36).substring(2, 9),
       date: matchDate,
       opponent,
-      ourScore,
-      opponentScore: theirScore
+      ourScore: lightScore,
+      opponentScore: darkScore
     };
 
     setMatches([newMatch, ...matches]);
-    setMatchOpponent("");
-    setOurScore(0);
-    setTheirScore(0);
-    triggerToast("Match saved!");
+    setLightScore(0);
+    setDarkScore(0);
+    triggerToast("Scrimmage match saved!");
   };
 
   const handleDeleteMatch = (id: string) => {
@@ -212,13 +229,51 @@ export default function App() {
       return;
     }
 
-    setPlayers(players.map(p => {
+    setPlayers(prevPlayers => prevPlayers.map(p => {
       if (p.id === selectedPlayerId) {
         const newVal = Math.max(0, p[field] + amount);
+        setLastAction({ playerId: p.id, field, prevValue: p[field] });
         return { ...p, [field]: newVal };
       }
       return p;
     }));
+  };
+
+  const sidelineLogStat = (playerId: string, field: keyof Omit<Player, "id" | "name">, amount: number) => {
+    setPlayers(prevPlayers => prevPlayers.map(p => {
+      if (p.id === playerId) {
+        const newVal = Math.max(0, p[field] + amount);
+        setLastAction({ playerId, field, prevValue: p[field] });
+        return { ...p, [field]: newVal };
+      }
+      return p;
+    }));
+
+    const p = players.find(player => player.id === playerId);
+    if (p) {
+      const fieldLabels: Record<keyof Omit<Player, "id" | "name">, string> = {
+        goals: "Goal 🥏",
+        assists: "Assist 🤝",
+        ds: "D (Block) 🚫",
+        turnovers: "Turnover ⚠️",
+        throwaways: "Throwaway ☄️",
+        drops: "Drop 🪂"
+      };
+      triggerToast(`${p.name}: +1 ${fieldLabels[field]}`);
+    }
+  };
+
+  const undoLastAction = () => {
+    if (!lastAction) return;
+    setPlayers(prevPlayers => prevPlayers.map(p => {
+      if (p.id === lastAction.playerId) {
+        return { ...p, [lastAction.field]: lastAction.prevValue };
+      }
+      return p;
+    }));
+    const player = players.find(p => p.id === lastAction.playerId);
+    triggerToast(`Undid stat change for ${player ? player.name : "player"}`);
+    setLastAction(null);
   };
 
   const handleDownloadCSV = () => {
@@ -531,7 +586,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {/* TAB 3: SCRIMMAGE SCORES */}
+          {/* TAB 3: SCRIMMAGE & STATS MERGED TRACKER */}
           {currentTab === "scrimmage" && (
             <motion.div
               key="scrimmage"
@@ -539,79 +594,85 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -15 }}
               transition={{ duration: 0.15 }}
-              className="space-y-5"
+              className="space-y-6"
             >
-              <div>
-                <h2 className="text-2xl font-black tracking-tight text-slate-900">Scrimmages</h2>
-                <p className="text-xs text-slate-500 font-medium">Record scores of sideline scrimmages & pickup sessions</p>
+              <div className="flex justify-between items-center">
+                <div>
+                  <h2 className="text-2xl font-black tracking-tight text-slate-900">Scrimmage & Stats</h2>
+                  <p className="text-xs text-slate-500 font-medium font-semibold">Keep scores and log live player statistics simultaneously from the sideline</p>
+                </div>
               </div>
 
-              {/* Match Score Input Form */}
-              <form onSubmit={handleSaveMatch} className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="block text-xs font-black text-slate-500 uppercase">Match Date</label>
-                    <input
-                      type="date"
-                      value={matchDate}
-                      onChange={(e) => setMatchDate(e.target.value)}
-                      required
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700"
-                    />
+              {/* SECTION 1: LIVE GAME SCOREBOARD */}
+              <div className="bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 text-white p-5 rounded-3xl shadow-lg border border-slate-800 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center space-x-2">
+                    <Calendar className="w-4 h-4 text-sky-400" />
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Scrimmage Date & Opponent</span>
                   </div>
-                  <div className="space-y-1">
-                    <label className="block text-xs font-black text-slate-500 uppercase">Opponent</label>
+                  <input
+                    type="date"
+                    value={matchDate}
+                    onChange={(e) => setMatchDate(e.target.value)}
+                    required
+                    className="border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500 bg-slate-950"
+                  />
+                </div>
+
+                <div className="flex items-center space-x-3">
+                  <div className="flex-1">
                     <input
                       type="text"
-                      placeholder="e.g. Red Team"
                       value={matchOpponent}
                       onChange={(e) => setMatchOpponent(e.target.value)}
-                      required
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700"
+                      placeholder="e.g. Scrimmage Drill or Opponent Name"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-bold text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500"
                     />
                   </div>
                 </div>
 
-                {/* Score counters - BIG touch targets */}
-                <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                  {/* Our score */}
-                  <div className="text-center space-y-2">
-                    <span className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Our Score</span>
-                    <div className="flex items-center justify-center space-x-3">
+                {/* Scoreboard Column Grid */}
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Light Team (White styling) */}
+                  <div className="bg-slate-950 border border-slate-800/80 p-4 rounded-2xl text-center space-y-3 shadow-md relative overflow-hidden">
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-white/40"></div>
+                    <span className="block text-[10px] font-black text-slate-300 uppercase tracking-wider">Light Team</span>
+                    <div className="text-5xl font-black text-white font-mono">{lightScore}</div>
+                    <div className="flex items-center justify-center space-x-2">
                       <button
                         type="button"
-                        onClick={() => setOurScore(prev => Math.max(0, prev - 1))}
-                        className="w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center font-black text-lg text-slate-600 active:bg-slate-100"
+                        onClick={() => setLightScore(prev => Math.max(0, prev - 1))}
+                        className="w-10 h-10 rounded-full bg-slate-900 border border-slate-850 flex items-center justify-center font-black text-lg text-slate-300 active:bg-slate-800 active:scale-95 transition-transform"
                       >
                         -
                       </button>
-                      <span className="text-2xl font-black text-slate-900 w-10 text-center">{ourScore}</span>
                       <button
                         type="button"
-                        onClick={() => setOurScore(prev => prev + 1)}
-                        className="w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center font-black text-lg text-slate-600 active:bg-slate-100"
+                        onClick={() => setLightScore(prev => prev + 1)}
+                        className="w-12 h-12 rounded-full bg-white text-slate-950 flex items-center justify-center font-black text-2xl shadow-sm active:bg-slate-200 active:scale-95 transition-transform"
                       >
                         +
                       </button>
                     </div>
                   </div>
 
-                  {/* Opponent score */}
-                  <div className="text-center space-y-2">
-                    <span className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Their Score</span>
-                    <div className="flex items-center justify-center space-x-3">
+                  {/* Dark Team (Navy styling) */}
+                  <div className="bg-slate-950 border border-slate-800/80 p-4 rounded-2xl text-center space-y-3 shadow-md relative overflow-hidden">
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-sky-500/80"></div>
+                    <span className="block text-[10px] font-black text-sky-400 uppercase tracking-wider">Dark Team</span>
+                    <div className="text-5xl font-black text-white font-mono">{darkScore}</div>
+                    <div className="flex items-center justify-center space-x-2">
                       <button
                         type="button"
-                        onClick={() => setTheirScore(prev => Math.max(0, prev - 1))}
-                        className="w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center font-black text-lg text-slate-600 active:bg-slate-100"
+                        onClick={() => setDarkScore(prev => Math.max(0, prev - 1))}
+                        className="w-10 h-10 rounded-full bg-slate-900 border border-slate-850 flex items-center justify-center font-black text-lg text-slate-300 active:bg-slate-800 active:scale-95 transition-transform"
                       >
                         -
                       </button>
-                      <span className="text-2xl font-black text-slate-900 w-10 text-center">{theirScore}</span>
                       <button
                         type="button"
-                        onClick={() => setTheirScore(prev => prev + 1)}
-                        className="w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center font-black text-lg text-slate-600 active:bg-slate-100"
+                        onClick={() => setDarkScore(prev => prev + 1)}
+                        className="w-12 h-12 rounded-full bg-sky-600 flex items-center justify-center font-black text-2xl text-white shadow-md shadow-sky-500/20 active:bg-sky-700 active:scale-95 transition-transform"
                       >
                         +
                       </button>
@@ -620,82 +681,164 @@ export default function App() {
                 </div>
 
                 <button
-                  type="submit"
-                  className="w-full bg-sky-600 hover:bg-sky-700 active:scale-98 text-white py-3.5 rounded-2xl font-black text-sm transition-all shadow-md flex justify-center items-center space-x-2"
+                  type="button"
+                  onClick={handleSaveMatch}
+                  className="w-full bg-slate-800 hover:bg-slate-750 active:scale-98 text-white py-3 rounded-xl font-black text-xs transition-all flex justify-center items-center space-x-2 border border-slate-700"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>Save Match Record</span>
+                  <Check className="w-4 h-4 text-sky-400" />
+                  <span>Save Scrimmage Match Score</span>
                 </button>
-              </form>
+              </div>
 
-              {/* Scrimmage History List */}
-              <div className="space-y-3">
-                <h3 className="text-base font-black tracking-tight text-slate-800">Match Records</h3>
-                {matches.length === 0 ? (
-                  <div className="bg-white p-8 text-center text-slate-400 rounded-2xl border border-slate-100 text-sm italic">
-                    No scrimmage matches recorded yet. Enter a score above to keep tabs.
+              {/* SECTION 2: SIDELINE QUICK STAT CLICKER */}
+              <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center space-x-1.5">
+                    <Zap className="w-4 h-4 text-amber-500 animate-bounce" />
+                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">Sideline Quick Stat Clicker</h3>
                   </div>
-                ) : (
-                  <div className="space-y-3">
-                    {matches.map(m => {
-                      const won = m.ourScore > m.opponentScore;
-                      const lost = m.ourScore < m.opponentScore;
-                      const badgeBg = won ? "bg-emerald-100 text-emerald-800" : lost ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-800";
-                      const badgeLabel = won ? "W" : lost ? "L" : "D";
+                  {lastAction && (
+                    <button
+                      type="button"
+                      onClick={undoLastAction}
+                      className="bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] px-2 py-0.5 rounded-lg font-black flex items-center space-x-1 border border-rose-200 transition-colors"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Undo Last</span>
+                    </button>
+                  )}
+                </div>
 
-                      return (
-                        <div key={m.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex justify-between items-center relative">
-                          <div className="space-y-1">
-                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">{m.date}</span>
-                            <h4 className="font-extrabold text-slate-800 text-sm">vs {m.opponent}</h4>
-                            <p className="text-lg font-black text-slate-900">
-                              {m.ourScore} <span className="text-xs font-semibold text-slate-400 mx-1">to</span> {m.opponentScore}
-                            </p>
+                <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-150">
+                  <span className="text-[11px] font-bold text-slate-500">Only show active present players on {matchDate}</span>
+                  <button
+                    type="button"
+                    onClick={() => setFilterPresentOnly(!filterPresentOnly)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
+                      filterPresentOnly ? "bg-sky-600" : "bg-slate-300"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                        filterPresentOnly ? "translate-x-4" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Player list for quick sideline stats logging */}
+                <div className="divide-y divide-slate-100 max-h-[380px] overflow-y-auto pr-1 space-y-2">
+                  {players.length === 0 ? (
+                    <p className="text-center text-slate-400 py-6 text-xs italic">No roster players found to log.</p>
+                  ) : (
+                    players
+                      .filter(p => {
+                        if (!filterPresentOnly) return true;
+                        const matchDateAttendance = attendance.find(r => r.date === matchDate);
+                        return matchDateAttendance ? matchDateAttendance.presentIds.includes(p.id) : true;
+                      })
+                      .map(p => (
+                        <div key={p.id} className="flex flex-col py-2.5 space-y-2 border-b border-slate-100 last:border-b-0">
+                          {/* Name and high-density stats overview */}
+                          <div className="flex justify-between items-center">
+                            <span className="font-extrabold text-slate-800 text-sm truncate max-w-[150px]">
+                              {p.name}
+                            </span>
+                            <div className="bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-md text-[9px] font-mono font-bold text-slate-500 flex space-x-2">
+                              <span className="text-emerald-700">G:{p.goals}</span>
+                              <span className="text-sky-700">A:{p.assists}</span>
+                              <span className="text-indigo-700">D:{p.ds}</span>
+                              <span className="text-rose-700">T:{p.turnovers}</span>
+                              <span className="text-amber-700">TA:{p.throwaways ?? 0}</span>
+                              <span className="text-teal-700">DP:{p.drops ?? 0}</span>
+                            </div>
                           </div>
 
-                          <div className="flex items-center space-x-3">
-                            <span className={`${badgeBg} w-8 h-8 rounded-full flex items-center justify-center text-xs font-black shadow-sm`}>
-                              {badgeLabel}
-                            </span>
+                          {/* Quick touch point action logger layout */}
+                          <div className="grid grid-cols-6 gap-1.5">
+                            {/* +Goal */}
                             <button
-                              onClick={() => handleDeleteMatch(m.id)}
-                              className="text-slate-300 hover:text-rose-500 transition-colors p-1"
+                              type="button"
+                              onClick={() => sidelineLogStat(p.id, "goals", 1)}
+                              className="bg-emerald-500 hover:bg-emerald-600 active:scale-90 text-white rounded-xl py-2 font-black text-xs shadow-sm flex flex-col items-center justify-center transition-all"
+                              title="Log Goal"
                             >
-                              <Trash2 className="w-4.5 h-4.5" />
+                              <span className="text-[8px] font-bold text-emerald-100 leading-none">GOAL</span>
+                              <span className="text-[11px] font-black">+G</span>
+                            </button>
+
+                            {/* +Assist */}
+                            <button
+                              type="button"
+                              onClick={() => sidelineLogStat(p.id, "assists", 1)}
+                              className="bg-sky-500 hover:bg-sky-600 active:scale-90 text-white rounded-xl py-2 font-black text-xs shadow-sm flex flex-col items-center justify-center transition-all"
+                              title="Log Assist"
+                            >
+                              <span className="text-[8px] font-bold text-sky-100 leading-none">ASST</span>
+                              <span className="text-[11px] font-black">+A</span>
+                            </button>
+
+                            {/* +D (Block) */}
+                            <button
+                              type="button"
+                              onClick={() => sidelineLogStat(p.id, "ds", 1)}
+                              className="bg-indigo-500 hover:bg-indigo-600 active:scale-90 text-white rounded-xl py-2 font-black text-xs shadow-sm flex flex-col items-center justify-center transition-all"
+                              title="Log Defensive Block"
+                            >
+                              <span className="text-[8px] font-bold text-indigo-100 leading-none">D-BLK</span>
+                              <span className="text-[11px] font-black">+D</span>
+                            </button>
+
+                            {/* +Turnover */}
+                            <button
+                              type="button"
+                              onClick={() => sidelineLogStat(p.id, "turnovers", 1)}
+                              className="bg-rose-500 hover:bg-rose-600 active:scale-90 text-white rounded-xl py-2 font-black text-xs shadow-sm flex flex-col items-center justify-center transition-all"
+                              title="Log Turnover"
+                            >
+                              <span className="text-[8px] font-bold text-rose-100 leading-none">TURN</span>
+                              <span className="text-[11px] font-black">+T</span>
+                            </button>
+
+                            {/* +Throwaway (Bad Throw) */}
+                            <button
+                              type="button"
+                              onClick={() => sidelineLogStat(p.id, "throwaways", 1)}
+                              className="bg-amber-500 hover:bg-amber-600 active:scale-90 text-white rounded-xl py-2 font-black text-xs shadow-sm flex flex-col items-center justify-center transition-all"
+                              title="Log Throwaway / Bad Throw"
+                            >
+                              <span className="text-[8px] font-bold text-amber-100 leading-none">THROW</span>
+                              <span className="text-[11px] font-black">+TA</span>
+                            </button>
+
+                            {/* +Drop */}
+                            <button
+                              type="button"
+                              onClick={() => sidelineLogStat(p.id, "drops", 1)}
+                              className="bg-teal-500 hover:bg-teal-600 active:scale-90 text-white rounded-xl py-2 font-black text-xs shadow-sm flex flex-col items-center justify-center transition-all"
+                              title="Log Dropped Pass"
+                            >
+                              <span className="text-[8px] font-bold text-teal-100 leading-none">DROP</span>
+                              <span className="text-[11px] font-black">+DP</span>
                             </button>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-
-          {/* TAB 4: PLAYER STATS TRACKER */}
-          {currentTab === "stats" && (
-            <motion.div
-              key="stats"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.15 }}
-              className="space-y-5"
-            >
-              <div>
-                <h2 className="text-2xl font-black tracking-tight text-slate-900">Player Stats</h2>
-                <p className="text-xs text-slate-500 font-medium">Log real-time Goals, Assists, Defense, and Turnovers on the sideline</p>
+                      ))
+                  )}
+                </div>
               </div>
 
-              {/* Selector & Big counters */}
+              {/* SECTION 3: DEEP STAT CORRECTIONS & PLAYER SELECTOR */}
               <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
                 <div>
-                  <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-1.5">Select Active Player</label>
+                  <div className="flex items-center space-x-1 mb-2">
+                    <Users className="w-4 h-4 text-sky-500" />
+                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">Detailed Player Stat Corrector</h3>
+                  </div>
                   <select
                     value={selectedPlayerId}
                     onChange={(e) => setSelectedPlayerId(e.target.value)}
-                    className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm font-bold text-slate-700"
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 text-xs font-bold text-slate-700"
                   >
                     {players.length === 0 ? (
                       <option value="">No players in roster</option>
@@ -708,23 +851,23 @@ export default function App() {
                 </div>
 
                 {selectedPlayer ? (
-                  <div className="grid grid-cols-2 gap-3.5">
+                  <div className="grid grid-cols-2 gap-3">
                     {/* Goals */}
-                    <div className="bg-emerald-50/70 border border-emerald-100 p-3.5 rounded-2xl flex flex-col justify-between items-center text-center">
-                      <span className="text-[10px] font-black text-emerald-800 tracking-wider uppercase">Goals</span>
-                      <span className="text-3xl font-black text-emerald-900 my-2">{selectedPlayer.goals}</span>
-                      <div className="flex space-x-1.5 w-full">
+                    <div className="bg-emerald-50/50 border border-emerald-100/60 p-3 rounded-xl text-center space-y-1 shadow-sm">
+                      <span className="text-[9px] font-black text-emerald-800 tracking-wider uppercase">Goals</span>
+                      <div className="text-2xl font-black text-emerald-900">{selectedPlayer.goals}</div>
+                      <div className="flex space-x-1">
                         <button
                           type="button"
                           onClick={() => adjustStat("goals", -1)}
-                          className="flex-1 bg-white hover:bg-emerald-100/50 text-emerald-800 border border-emerald-200 rounded-xl font-bold py-1.5 text-sm"
+                          className="flex-1 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg font-bold py-1 text-xs active:scale-95 transition-transform"
                         >
                           -
                         </button>
                         <button
                           type="button"
                           onClick={() => adjustStat("goals", 1)}
-                          className="flex-1 bg-emerald-600 text-white rounded-xl font-black py-1.5 text-sm hover:bg-emerald-700 active:scale-95 transition-transform"
+                          className="flex-1 bg-emerald-600 text-white rounded-lg font-black py-1 text-xs hover:bg-emerald-700 active:scale-95 transition-transform"
                         >
                           +1
                         </button>
@@ -732,21 +875,21 @@ export default function App() {
                     </div>
 
                     {/* Assists */}
-                    <div className="bg-sky-50/70 border border-sky-100 p-3.5 rounded-2xl flex flex-col justify-between items-center text-center">
-                      <span className="text-[10px] font-black text-sky-800 tracking-wider uppercase">Assists</span>
-                      <span className="text-3xl font-black text-sky-900 my-2">{selectedPlayer.assists}</span>
-                      <div className="flex space-x-1.5 w-full">
+                    <div className="bg-sky-50/50 border border-sky-100/60 p-3 rounded-xl text-center space-y-1 shadow-sm">
+                      <span className="text-[9px] font-black text-sky-800 tracking-wider uppercase">Assists</span>
+                      <div className="text-2xl font-black text-sky-900">{selectedPlayer.assists}</div>
+                      <div className="flex space-x-1">
                         <button
                           type="button"
                           onClick={() => adjustStat("assists", -1)}
-                          className="flex-1 bg-white hover:bg-sky-100/50 text-sky-800 border border-sky-200 rounded-xl font-bold py-1.5 text-sm"
+                          className="flex-1 bg-white hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-lg font-bold py-1 text-xs active:scale-95 transition-transform"
                         >
                           -
                         </button>
                         <button
                           type="button"
                           onClick={() => adjustStat("assists", 1)}
-                          className="flex-1 bg-sky-600 text-white rounded-xl font-black py-1.5 text-sm hover:bg-sky-700 active:scale-95 transition-transform"
+                          className="flex-1 bg-sky-600 text-white rounded-lg font-black py-1 text-xs hover:bg-sky-700 active:scale-95 transition-transform"
                         >
                           +1
                         </button>
@@ -754,21 +897,21 @@ export default function App() {
                     </div>
 
                     {/* D's (Blocks) */}
-                    <div className="bg-indigo-50/70 border border-indigo-100 p-3.5 rounded-2xl flex flex-col justify-between items-center text-center">
-                      <span className="text-[10px] font-black text-indigo-800 tracking-wider uppercase">D's (Blocks)</span>
-                      <span className="text-3xl font-black text-indigo-900 my-2">{selectedPlayer.ds}</span>
-                      <div className="flex space-x-1.5 w-full">
+                    <div className="bg-indigo-50/50 border border-indigo-100/60 p-3 rounded-xl text-center space-y-1 shadow-sm">
+                      <span className="text-[9px] font-black text-indigo-800 tracking-wider uppercase">D's (Blocks)</span>
+                      <div className="text-2xl font-black text-indigo-900">{selectedPlayer.ds}</div>
+                      <div className="flex space-x-1">
                         <button
                           type="button"
                           onClick={() => adjustStat("ds", -1)}
-                          className="flex-1 bg-white hover:bg-indigo-100/50 text-indigo-800 border border-indigo-200 rounded-xl font-bold py-1.5 text-sm"
+                          className="flex-1 bg-white hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-lg font-bold py-1 text-xs active:scale-95 transition-transform"
                         >
                           -
                         </button>
                         <button
                           type="button"
                           onClick={() => adjustStat("ds", 1)}
-                          className="flex-1 bg-indigo-600 text-white rounded-xl font-black py-1.5 text-sm hover:bg-indigo-700 active:scale-95 transition-transform"
+                          className="flex-1 bg-indigo-600 text-white rounded-lg font-black py-1 text-xs hover:bg-indigo-700 active:scale-95 transition-transform"
                         >
                           +1
                         </button>
@@ -776,41 +919,88 @@ export default function App() {
                     </div>
 
                     {/* Turnovers */}
-                    <div className="bg-rose-50/70 border border-rose-100 p-3.5 rounded-2xl flex flex-col justify-between items-center text-center">
-                      <span className="text-[10px] font-black text-rose-800 tracking-wider uppercase">Turnovers</span>
-                      <span className="text-3xl font-black text-rose-900 my-2">{selectedPlayer.turnovers}</span>
-                      <div className="flex space-x-1.5 w-full">
+                    <div className="bg-rose-50/50 border border-rose-100/60 p-3 rounded-xl text-center space-y-1 shadow-sm">
+                      <span className="text-[9px] font-black text-rose-800 tracking-wider uppercase">Turnovers</span>
+                      <div className="text-2xl font-black text-rose-900">{selectedPlayer.turnovers}</div>
+                      <div className="flex space-x-1">
                         <button
                           type="button"
                           onClick={() => adjustStat("turnovers", -1)}
-                          className="flex-1 bg-white hover:bg-rose-100/50 text-rose-800 border border-rose-200 rounded-xl font-bold py-1.5 text-sm"
+                          className="flex-1 bg-white hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-lg font-bold py-1 text-xs active:scale-95 transition-transform"
                         >
                           -
                         </button>
                         <button
                           type="button"
                           onClick={() => adjustStat("turnovers", 1)}
-                          className="flex-1 bg-rose-600 text-white rounded-xl font-black py-1.5 text-sm hover:bg-rose-700 active:scale-95 transition-transform"
+                          className="flex-1 bg-rose-600 text-white rounded-lg font-black py-1 text-xs hover:bg-rose-700 active:scale-95 transition-transform"
                         >
                           +1
                         </button>
                       </div>
                     </div>
+
+                    {/* Throwaways */}
+                    <div className="bg-amber-50/50 border border-amber-100/60 p-3 rounded-xl text-center space-y-1 shadow-sm">
+                      <span className="text-[9px] font-black text-amber-800 tracking-wider uppercase">Throwaways</span>
+                      <div className="text-2xl font-black text-amber-900">{selectedPlayer.throwaways ?? 0}</div>
+                      <div className="flex space-x-1">
+                        <button
+                          type="button"
+                          onClick={() => adjustStat("throwaways", -1)}
+                          className="flex-1 bg-white hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg font-bold py-1 text-xs active:scale-95 transition-transform"
+                        >
+                          -
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => adjustStat("throwaways", 1)}
+                          className="flex-1 bg-amber-600 text-white rounded-lg font-black py-1 text-xs hover:bg-amber-700 active:scale-95 transition-transform"
+                        >
+                          +1
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Drops */}
+                    <div className="bg-teal-50/50 border border-teal-100/60 p-3 rounded-xl text-center space-y-1 shadow-sm">
+                      <span className="text-[9px] font-black text-teal-800 tracking-wider uppercase">Drops</span>
+                      <div className="text-2xl font-black text-teal-900">{selectedPlayer.drops ?? 0}</div>
+                      <div className="flex space-x-1">
+                        <button
+                          type="button"
+                          onClick={() => adjustStat("drops", -1)}
+                          className="flex-1 bg-white hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-lg font-bold py-1 text-xs active:scale-95 transition-transform"
+                        >
+                          -
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => adjustStat("drops", 1)}
+                          className="flex-1 bg-teal-600 text-white rounded-lg font-black py-1 text-xs hover:bg-teal-700 active:scale-95 transition-transform"
+                        >
+                          +1
+                        </button>
+                      </div>
+                    </div>
+
                   </div>
                 ) : (
-                  <p className="text-sm text-slate-400 italic text-center py-4">No active player statistics to log.</p>
+                  <p className="text-xs text-slate-400 italic text-center py-2">No player selected for detailed stat edits.</p>
                 )}
               </div>
 
-              {/* Team contributions Leaderboard Summary table */}
+              {/* SECTION 4: LIVE TEAM STATS LEDGER */}
               <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-3">
                 <div className="flex justify-between items-center">
-                  <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest">Team Stats Ledger</h3>
-                  <div className="flex items-center text-[10px] text-slate-400 font-bold space-x-2">
-                    <span>G: Goals</span>
-                    <span>A: Assists</span>
-                    <span>D: Defenses</span>
-                    <span>T: Turnovers</span>
+                  <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider">Live Team Stats Ledger</h3>
+                  <div className="flex items-center text-[9px] text-slate-400 font-bold space-x-1.5">
+                    <span>G:Goals</span>
+                    <span>A:Assists</span>
+                    <span>D:Ds</span>
+                    <span>T:Turnovers</span>
+                    <span>TA:Throwaways</span>
+                    <span>DP:Drops</span>
                   </div>
                 </div>
 
@@ -818,34 +1008,94 @@ export default function App() {
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
                       <tr className="border-b border-slate-100 text-slate-400 font-bold">
-                        <th className="py-2 pl-1">Player</th>
-                        <th className="py-2 text-center w-10">G</th>
-                        <th className="py-2 text-center w-10">A</th>
-                        <th className="py-2 text-center w-10">D</th>
-                        <th className="py-2 text-center w-10">T</th>
+                        <th className="py-2 pl-1 text-[11px]">Player</th>
+                        <th className="py-2 text-center w-8 text-[11px]">G</th>
+                        <th className="py-2 text-center w-8 text-[11px]">A</th>
+                        <th className="py-2 text-center w-8 text-[11px]">D</th>
+                        <th className="py-2 text-center w-8 text-[11px]">T</th>
+                        <th className="py-2 text-center w-8 text-[11px]">TA</th>
+                        <th className="py-2 text-center w-8 text-[11px]">DP</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50 text-slate-600 font-semibold">
-                      {leaderboardPlayers.length === 0 ? (
+                      {players.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="py-6 text-center text-slate-400 italic">
-                            No team data available.
+                          <td colSpan={7} className="py-6 text-center text-slate-400 italic text-[11px]">
+                            No player stats logged yet.
                           </td>
                         </tr>
                       ) : (
-                        leaderboardPlayers.map(p => (
-                          <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="py-2.5 pl-1 font-extrabold text-slate-800">{p.name}</td>
-                            <td className="py-2.5 text-center text-emerald-600 font-bold">{p.goals}</td>
-                            <td className="py-2.5 text-center text-sky-600 font-bold">{p.assists}</td>
-                            <td className="py-2.5 text-center text-indigo-600 font-bold">{p.ds}</td>
-                            <td className="py-2.5 text-center text-rose-500 font-bold">{p.turnovers}</td>
-                          </tr>
-                        ))
+                        [...players]
+                          .sort((a, b) => {
+                            // Sort by overall positive contribution: goals + assists + ds - (turnovers + throwaways + drops)
+                            const contributionA = a.goals + a.assists + a.ds - (a.turnovers + (a.throwaways ?? 0) + (a.drops ?? 0));
+                            const contributionB = b.goals + b.assists + b.ds - (b.turnovers + (b.throwaways ?? 0) + (b.drops ?? 0));
+                            return contributionB - contributionA;
+                          })
+                          .map(p => (
+                            <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
+                              <td className="py-2.5 pl-1 font-extrabold text-slate-800 text-[11px] truncate max-w-[100px]">{p.name}</td>
+                              <td className="py-2.5 text-center text-emerald-600 font-bold text-[11px]">{p.goals}</td>
+                              <td className="py-2.5 text-center text-sky-600 font-bold text-[11px]">{p.assists}</td>
+                              <td className="py-2.5 text-center text-indigo-600 font-bold text-[11px]">{p.ds}</td>
+                              <td className="py-2.5 text-center text-rose-500 font-bold text-[11px]">{p.turnovers}</td>
+                              <td className="py-2.5 text-center text-amber-600 font-bold text-[11px]">{p.throwaways ?? 0}</td>
+                              <td className="py-2.5 text-center text-teal-600 font-bold text-[11px]">{p.drops ?? 0}</td>
+                            </tr>
+                          ))
                       )}
                     </tbody>
                   </table>
                 </div>
+              </div>
+
+              {/* SECTION 5: HISTORICAL MATCH SCORES LIST */}
+              <div className="space-y-3">
+                <h3 className="text-base font-black tracking-tight text-slate-800">Scrimmage Match History</h3>
+                {matches.length === 0 ? (
+                  <div className="bg-white p-8 text-center text-slate-400 rounded-2xl border border-slate-100 text-xs italic">
+                    No scrimmage matches recorded yet. Save a completed score above to keep tabs.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {matches.map(m => {
+                      const won = m.ourScore > m.opponentScore;
+                      const lost = m.ourScore < m.opponentScore;
+                      const isTie = m.ourScore === m.opponentScore;
+                      const badgeBg = won ? "bg-slate-50 border border-slate-200 text-slate-800" : lost ? "bg-slate-900 text-white border border-slate-800" : "bg-sky-50 border border-sky-150 text-sky-800";
+                      const badgeLabel = won ? "Light Win 🏆" : lost ? "Dark Win 🏆" : "Draw 🤝";
+
+                      return (
+                        <div key={m.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex justify-between items-center relative">
+                          <div className="space-y-1">
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">{m.date}</span>
+                            <h4 className="font-extrabold text-slate-800 text-xs">{m.opponent}</h4>
+                            <p className="text-base font-black text-slate-900">
+                              <span className="text-slate-500 font-bold text-xs">Light </span>
+                              {m.ourScore} 
+                              <span className="text-[10px] font-semibold text-slate-400 mx-1">to</span> 
+                              {m.opponentScore}
+                              <span className="text-slate-400 font-bold text-xs"> Dark</span>
+                            </p>
+                          </div>
+
+                          <div className="flex items-center space-x-2">
+                            <span className={`${badgeBg} px-2 py-1 rounded-full flex items-center justify-center text-[10px] font-black shadow-sm border`}>
+                              {badgeLabel}
+                            </span>
+                            <button
+                              onClick={() => handleDeleteMatch(m.id)}
+                              className="text-slate-300 hover:text-rose-500 transition-colors p-1"
+                              title="Delete Match Record"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
@@ -941,7 +1191,7 @@ export default function App() {
 
       {/* BOTTOM THUMB NAVIGATION RAIL */}
       <nav className="fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 text-slate-400 z-45 shadow-2xl max-w-md mx-auto rounded-t-2xl">
-        <div className="grid grid-cols-5 h-16 text-[10px] font-black">
+        <div className="grid grid-cols-4 h-16 text-[10px] font-black">
           {/* Tab 1: Attendance */}
           <button
             onClick={() => setCurrentTab("roster")}
@@ -964,7 +1214,7 @@ export default function App() {
             <span>Practice</span>
           </button>
 
-          {/* Tab 3: Scrimmage */}
+          {/* Tab 3: Scrimmage & Stats */}
           <button
             onClick={() => setCurrentTab("scrimmage")}
             className={`flex flex-col items-center justify-center space-y-1 active:scale-95 transition-transform ${
@@ -972,21 +1222,10 @@ export default function App() {
             }`}
           >
             <Zap className="w-5 h-5" />
-            <span>Scrimmage</span>
+            <span>Scrimmage & Stats</span>
           </button>
 
-          {/* Tab 4: Player Stats */}
-          <button
-            onClick={() => setCurrentTab("stats")}
-            className={`flex flex-col items-center justify-center space-y-1 active:scale-95 transition-transform ${
-              currentTab === "stats" ? "text-sky-400" : "text-slate-400"
-            }`}
-          >
-            <BarChart3 className="w-5 h-5" />
-            <span>Stats</span>
-          </button>
-
-          {/* Tab 5: Export */}
+          {/* Tab 4: Export */}
           <button
             onClick={() => setCurrentTab("export")}
             className={`flex flex-col items-center justify-center space-y-1 active:scale-95 transition-transform ${

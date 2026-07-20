@@ -1,16 +1,16 @@
 import { Player, AttendanceRecord, PracticeLog, ScrimmageMatch } from "./types";
 
 export const DEFAULT_PLAYERS: Player[] = [
-  { id: "1", name: "Alex Carter", goals: 14, assists: 18, ds: 9, turnovers: 4 },
-  { id: "2", name: "Jordan Miller", goals: 10, assists: 15, ds: 6, turnovers: 5 },
-  { id: "3", name: "Taylor Reece", goals: 22, assists: 8, ds: 14, turnovers: 3 },
-  { id: "4", name: "Sam Rivera", goals: 6, assists: 25, ds: 5, turnovers: 7 },
-  { id: "5", name: "Chris Evans", goals: 15, assists: 12, ds: 11, turnovers: 4 },
-  { id: "6", name: "Morgan Taylor", goals: 8, assists: 9, ds: 17, turnovers: 2 },
-  { id: "7", name: "Casey Zhang", goals: 12, assists: 11, ds: 7, turnovers: 5 },
-  { id: "8", name: "Pat Kennedy", goals: 5, assists: 20, ds: 4, turnovers: 8 },
-  { id: "9", name: "Drew Sterling", goals: 19, assists: 6, ds: 10, turnovers: 4 },
-  { id: "10", name: "Jamie Vance", goals: 9, assists: 13, ds: 8, turnovers: 6 }
+  { id: "1", name: "Alex Carter", goals: 14, assists: 18, ds: 9, turnovers: 4, throwaways: 3, drops: 2 },
+  { id: "2", name: "Jordan Miller", goals: 10, assists: 15, ds: 6, turnovers: 5, throwaways: 4, drops: 1 },
+  { id: "3", name: "Taylor Reece", goals: 22, assists: 8, ds: 14, turnovers: 3, throwaways: 2, drops: 4 },
+  { id: "4", name: "Sam Rivera", goals: 6, assists: 25, ds: 5, turnovers: 7, throwaways: 6, drops: 2 },
+  { id: "5", name: "Chris Evans", goals: 15, assists: 12, ds: 11, turnovers: 4, throwaways: 3, drops: 3 },
+  { id: "6", name: "Morgan Taylor", goals: 8, assists: 9, ds: 17, turnovers: 2, throwaways: 1, drops: 1 },
+  { id: "7", name: "Casey Zhang", goals: 12, assists: 11, ds: 7, turnovers: 5, throwaways: 4, drops: 2 },
+  { id: "8", name: "Pat Kennedy", goals: 5, assists: 20, ds: 4, turnovers: 8, throwaways: 5, drops: 3 },
+  { id: "9", name: "Drew Sterling", goals: 19, assists: 6, ds: 10, turnovers: 4, throwaways: 3, drops: 2 },
+  { id: "10", name: "Jamie Vance", goals: 9, assists: 13, ds: 8, turnovers: 6, throwaways: 4, drops: 2 }
 ];
 
 export function exportToCSV(players: Player[], attendance: AttendanceRecord[], logs: PracticeLog[], matches: ScrimmageMatch[]) {
@@ -18,9 +18,9 @@ export function exportToCSV(players: Player[], attendance: AttendanceRecord[], l
   let csvContent = "data:text/csv;charset=utf-8,";
   
   csvContent += "=== PLAYER STATS ===\n";
-  csvContent += "Player Name,Goals,Assists,D's (Deflection/Blocks),Turnovers\n";
+  csvContent += "Player Name,Goals,Assists,D's (Deflection/Blocks),Turnovers,Throwaways (Bad Throws),Drops\n";
   players.forEach(p => {
-    csvContent += `"${p.name.replace(/"/g, '""')}",${p.goals},${p.assists},${p.ds},${p.turnovers}\n`;
+    csvContent += `"${p.name.replace(/"/g, '""')}",${p.goals},${p.assists},${p.ds},${p.turnovers},${p.throwaways ?? 0},${p.drops ?? 0}\n`;
   });
 
   // 2. Attendance CSV
@@ -206,49 +206,88 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
 
       <!-- New Match Record Form -->
       <form id="match-form" class="bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-4">
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Match Date</label>
-            <input type="date" id="match-date" required
-              class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div class="flex items-center space-x-2">
+            <svg class="w-4 h-4 text-sky-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            <span class="text-xs font-bold text-slate-500 uppercase">Scrimmage Date</span>
           </div>
-          <div>
-            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Opponent</label>
-            <input type="text" id="match-opponent" placeholder="e.g. Red Team, Pickups..." required
-              class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
-          </div>
+          <input type="date" id="match-date" required
+            class="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 bg-slate-50">
         </div>
 
-        <!-- Scores with quick increment pads -->
-        <div class="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
-          <div class="text-center space-y-2">
-            <span class="block text-xs font-bold text-slate-500 uppercase">Our Score</span>
+        <!-- Scoreboard Column Grid -->
+        <div class="grid grid-cols-2 gap-4">
+          <!-- Light Team (White styling) -->
+          <div class="bg-slate-50 border border-slate-200 p-4 rounded-xl text-center space-y-3 shadow-sm">
+            <span class="block text-xs font-bold text-slate-600 uppercase tracking-wider">Light Team</span>
+            <div class="text-5xl font-black text-slate-800" id="light-score-display">0</div>
+            <input type="hidden" id="match-our-score" value="0">
             <div class="flex items-center justify-center space-x-2">
-              <button type="button" onclick="adjustInput('match-our-score', -1)" class="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center font-bold text-slate-600 active:bg-slate-100">-</button>
-              <input type="number" id="match-our-score" value="0" min="0" class="w-12 text-center font-extrabold text-xl bg-transparent border-none focus:outline-none">
-              <button type="button" onclick="adjustInput('match-our-score', 1)" class="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center font-bold text-slate-600 active:bg-slate-100">+</button>
+              <button type="button" onclick="adjustLightScore(-1)"
+                class="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center font-bold text-lg text-slate-600 active:bg-slate-200 active:scale-95 transition-transform">
+                -
+              </button>
+              <button type="button" onclick="adjustLightScore(1)"
+                class="w-12 h-12 rounded-full bg-white border-2 border-slate-300 flex items-center justify-center font-bold text-2xl text-slate-800 shadow-sm active:bg-slate-200 active:scale-95 transition-transform">
+                +
+              </button>
             </div>
           </div>
 
-          <div class="text-center space-y-2">
-            <span class="block text-xs font-bold text-slate-500 uppercase">Their Score</span>
+          <!-- Dark Team (Navy styling) -->
+          <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl text-center space-y-3 shadow-sm text-white">
+            <span class="block text-xs font-bold text-slate-300 uppercase tracking-wider">Dark Team</span>
+            <div class="text-5xl font-black text-white" id="dark-score-display">0</div>
+            <input type="hidden" id="match-their-score" value="0">
             <div class="flex items-center justify-center space-x-2">
-              <button type="button" onclick="adjustInput('match-their-score', -1)" class="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center font-bold text-slate-600 active:bg-slate-100">-</button>
-              <input type="number" id="match-their-score" value="0" min="0" class="w-12 text-center font-extrabold text-xl bg-transparent border-none focus:outline-none">
-              <button type="button" onclick="adjustInput('match-their-score', 1)" class="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center font-bold text-slate-600 active:bg-slate-100">+</button>
+              <button type="button" onclick="adjustDarkScore(-1)"
+                class="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-lg text-slate-300 active:bg-slate-700 active:scale-95 transition-transform">
+                -
+              </button>
+              <button type="button" onclick="adjustDarkScore(1)"
+                class="w-12 h-12 rounded-full bg-sky-600 flex items-center justify-center font-bold text-2xl text-white shadow-md active:bg-sky-700 active:scale-95 transition-transform">
+                +
+              </button>
             </div>
           </div>
         </div>
 
-        <button type="submit" class="w-full bg-sky-600 hover:bg-sky-700 text-white py-3 rounded-xl font-bold text-sm transition-colors shadow-sm flex justify-center items-center space-x-2">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-          <span>Save Match Score</span>
+        <button type="submit" class="w-full bg-slate-900 hover:bg-slate-800 text-white py-3.5 rounded-xl font-bold text-sm transition-all shadow-md flex justify-center items-center space-x-2">
+          <svg class="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+          <span>Save Scrimmage Score</span>
         </button>
       </form>
 
-      <!-- Matches List -->
+      <!-- SIDELINE QUICK STAT LOGGER -->
+      <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-100 space-y-4">
+        <div class="flex justify-between items-center">
+          <div class="flex items-center space-x-1.5">
+            <svg class="w-4 h-4 text-amber-500 animate-bounce" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+            <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Sideline Quick Stat Clicker</h3>
+          </div>
+          <button type="button" id="sideline-undo-btn" onclick="undoLastSidelineAction()" class="hidden bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs px-2.5 py-1 rounded font-bold flex items-center space-x-1 border border-rose-200 transition-colors">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
+            <span>Undo</span>
+          </button>
+        </div>
+
+        <div class="flex items-center justify-between bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+          <span class="text-xs font-bold text-slate-500">Filter list by present players only</span>
+          <button type="button" onclick="toggleSidelineFilter()" id="sideline-filter-toggle"
+            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors bg-sky-600 focus:outline-none">
+            <span id="sideline-filter-dot" class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"></span>
+          </button>
+        </div>
+
+        <!-- Player list for quick sideline stats logging -->
+        <div id="sideline-players-list" class="divide-y divide-slate-100 max-h-[380px] overflow-y-auto pr-1 space-y-2">
+          <!-- Dynamically populated sideline player rows -->
+        </div>
+      </div>
+
+      <!-- Scrimmage History List -->
       <div class="space-y-3">
-        <h3 class="text-lg font-bold text-slate-800">Match Records</h3>
+        <h3 class="text-lg font-bold text-slate-800">Scrimmage Match Records</h3>
         <div id="matches-list" class="space-y-3">
           <!-- Dynamic matches -->
         </div>
@@ -448,6 +487,9 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
       practiceLogs: [],
       matches: []
     };
+    
+    let lastAction = null;
+    let sidelineFilterPresentOnly = true;
 
     // Load state from localStorage or initial bundle
     function loadState() {
@@ -488,6 +530,7 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
         renderPracticeLogs();
       } else if (tabId === 'scrimmage') {
         renderMatches();
+        renderSidelinePlayers();
       } else if (tabId === 'stats') {
         loadPlayerStatsDropdown();
         loadPlayerStats();
@@ -719,19 +762,24 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
       sorted.forEach(m => {
         const isWin = m.ourScore > m.opponentScore;
         const isLoss = m.ourScore < m.opponentScore;
-        const badgeClass = isWin ? 'bg-emerald-100 text-emerald-800' : isLoss ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-800';
-        const badgeLabel = isWin ? 'W' : isLoss ? 'L' : 'T';
+        const isTie = m.ourScore === m.opponentScore;
+        const badgeClass = isWin ? 'bg-slate-50 border border-slate-200 text-slate-800' : isLoss ? 'bg-slate-900 text-white border border-slate-800' : 'bg-sky-50 border border-sky-150 text-sky-800';
+        const badgeLabel = isWin ? 'Light Win 🏆' : isLoss ? 'Dark Win 🏆' : 'Draw 🤝';
 
         const card = document.createElement('div');
         card.className = "bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between";
         card.innerHTML = \`
           <div class="space-y-1">
             <span class="text-[10px] font-bold text-slate-400 uppercase">\${m.date}</span>
-            <h4 class="font-bold text-slate-800 text-sm">vs \${m.opponent}</h4>
-            <p class="text-lg font-black text-slate-900">\${m.ourScore} <span class="text-xs font-normal text-slate-400">to</span> \${m.opponentScore}</p>
+            <h4 class="font-bold text-slate-800 text-sm">\${m.opponent}</h4>
+            <p class="text-lg font-black text-slate-900">
+              <span class="text-slate-500 font-bold text-sm">Light </span>\${m.ourScore} 
+              <span class="text-xs font-semibold text-slate-400 mx-1">to</span> 
+              \${m.opponentScore}<span class="text-slate-400 font-bold text-sm"> Dark</span>
+            </p>
           </div>
           <div class="flex items-center space-x-3">
-            <span class="\${badgeClass} w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm shadow-sm">\${badgeLabel}</span>
+            <span class="\${badgeClass} px-3 py-1.5 rounded-full flex items-center justify-center font-bold text-xs shadow-sm border">\${badgeLabel}</span>
             <button onclick="deleteMatch('\${m.id}')" class="text-slate-300 hover:text-rose-500 transition-colors p-1">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
             </button>
@@ -753,11 +801,11 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
     document.getElementById('match-form').addEventListener('submit', (e) => {
       e.preventDefault();
       const date = document.getElementById('match-date').value;
-      const opponent = document.getElementById('match-opponent').value.trim();
+      const opponent = "Light vs Dark";
       const ourScore = parseInt(document.getElementById('match-our-score').value, 10) || 0;
       const opponentScore = parseInt(document.getElementById('match-their-score').value, 10) || 0;
 
-      if (!date || !opponent) return;
+      if (!date) return;
 
       const newMatch = {
         id: Math.random().toString(36).substring(2, 9),
@@ -771,12 +819,151 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
       saveState();
 
       // Reset score inputs
-      document.getElementById('match-opponent').value = '';
       document.getElementById('match-our-score').value = 0;
       document.getElementById('match-their-score').value = 0;
+      document.getElementById('light-score-display').textContent = '0';
+      document.getElementById('dark-score-display').textContent = '0';
 
       alert("Scrimmage match score saved!");
       renderMatches();
+    });
+
+    function adjustLightScore(val) {
+      const el = document.getElementById('match-our-score');
+      let currentVal = parseInt(el.value, 10) || 0;
+      const newVal = Math.max(0, currentVal + val);
+      el.value = newVal;
+      document.getElementById('light-score-display').textContent = newVal;
+    }
+
+    function adjustDarkScore(val) {
+      const el = document.getElementById('match-their-score');
+      let currentVal = parseInt(el.value, 10) || 0;
+      const newVal = Math.max(0, currentVal + val);
+      el.value = newVal;
+      document.getElementById('dark-score-display').textContent = newVal;
+    }
+
+    function toggleSidelineFilter() {
+      sidelineFilterPresentOnly = !sidelineFilterPresentOnly;
+      const toggleBtn = document.getElementById('sideline-filter-toggle');
+      const toggleDot = document.getElementById('sideline-filter-dot');
+      
+      if (sidelineFilterPresentOnly) {
+        toggleBtn.classList.remove('bg-slate-300');
+        toggleBtn.classList.add('bg-sky-600');
+        toggleDot.classList.remove('translate-x-1');
+        toggleDot.classList.add('translate-x-6');
+      } else {
+        toggleBtn.classList.remove('bg-sky-600');
+        toggleBtn.classList.add('bg-slate-300');
+        toggleDot.classList.remove('translate-x-6');
+        toggleDot.classList.add('translate-x-1');
+      }
+      renderSidelinePlayers();
+    }
+
+    function sidelineLogStat(playerId, field, amount) {
+      const player = appData.players.find(p => p.id === playerId);
+      if (!player) return;
+
+      // Save for undo
+      lastAction = {
+        playerId: playerId,
+        field: field,
+        prevValue: player[field] || 0
+      };
+
+      player[field] = Math.max(0, (player[field] || 0) + amount);
+      saveState();
+
+      // Show Undo Button
+      document.getElementById('sideline-undo-btn').classList.remove('hidden');
+
+      renderSidelinePlayers();
+      // Update stats leaderboards/dropdowns in case user switches tabs
+      renderLeaderboard();
+    }
+
+    function undoLastSidelineAction() {
+      if (!lastAction) return;
+
+      const player = appData.players.find(p => p.id === lastAction.playerId);
+      if (player) {
+        player[lastAction.field] = lastAction.prevValue;
+        saveState();
+        alert("Undid last stat change for " + player.name);
+      }
+
+      lastAction = null;
+      document.getElementById('sideline-undo-btn').classList.add('hidden');
+      renderSidelinePlayers();
+      renderLeaderboard();
+    }
+
+    function renderSidelinePlayers() {
+      const container = document.getElementById('sideline-players-list');
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (appData.players.length === 0) {
+        container.innerHTML = '<p class="text-center text-slate-400 py-6 text-xs italic">No roster players found to log.</p>';
+        return;
+      }
+
+      // Check attendance for selected scrimmage date
+      const selectedDate = document.getElementById('match-date').value || new Date().toISOString().split('T')[0];
+      const attRecord = appData.attendance.find(r => r.date === selectedDate);
+      const presentIds = attRecord ? attRecord.presentIds : appData.players.map(p => p.id);
+
+      const filteredPlayers = sidelineFilterPresentOnly 
+        ? appData.players.filter(p => presentIds.includes(p.id))
+        : appData.players;
+
+      if (filteredPlayers.length === 0) {
+        container.innerHTML = '<p class="text-center text-slate-400 py-6 text-xs italic">No present players found. Toggle filter to show all.</p>';
+        return;
+      }
+
+      filteredPlayers.forEach(p => {
+        const div = document.createElement('div');
+        div.className = "flex flex-col sm:flex-row sm:items-center justify-between py-2.5 space-y-2 sm:space-y-0 border-b border-slate-50 last:border-b-0";
+        div.innerHTML = \`
+          <div class="truncate pr-2">
+            <span class="font-extrabold text-slate-800 text-sm block truncate max-w-[150px]">\${p.name}</span>
+            <span class="text-[10px] font-mono font-bold text-slate-400">G:\${p.goals || 0} | A:\${p.assists || 0} | D:\${p.ds || 0} | T:\${p.turnovers || 0}</span>
+          </div>
+          <div class="flex items-center space-x-1.5 self-end sm:self-auto">
+            <button type="button" onclick="sidelineLogStat('\${p.id}', 'goals', 1)" class="w-10 h-10 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs shadow-sm flex flex-col items-center justify-center active:scale-90 transition-transform">
+              <span class="text-[8px] font-bold text-emerald-100">GOAL</span>
+              <span class="text-xs -mt-1 font-black">+G</span>
+            </button>
+            <button type="button" onclick="sidelineLogStat('\${p.id}', 'assists', 1)" class="w-10 h-10 rounded-full bg-sky-500 hover:bg-sky-600 text-white font-black text-xs shadow-sm flex flex-col items-center justify-center active:scale-90 transition-transform">
+              <span class="text-[8px] font-bold text-sky-100">ASST</span>
+              <span class="text-xs -mt-1 font-black">+A</span>
+            </button>
+            <button type="button" onclick="sidelineLogStat('\${p.id}', 'ds', 1)" class="w-10 h-10 rounded-full bg-indigo-500 hover:bg-indigo-600 text-white font-black text-xs shadow-sm flex flex-col items-center justify-center active:scale-90 transition-transform">
+              <span class="text-[8px] font-bold text-indigo-100">DEF</span>
+              <span class="text-xs -mt-1 font-black">+D</span>
+            </button>
+            <button type="button" onclick="sidelineLogStat('\${p.id}', 'turnovers', 1)" class="w-10 h-10 rounded-full bg-rose-500 hover:bg-rose-600 text-white font-black text-xs shadow-sm flex flex-col items-center justify-center active:scale-90 transition-transform">
+              <span class="text-[8px] font-bold text-rose-100">TURN</span>
+              <span class="text-xs -mt-1 font-black">+T</span>
+            </button>
+          </div>
+        \`;
+        container.appendChild(div);
+      });
+    }
+
+    // Bind change listener to match-date
+    document.addEventListener('DOMContentLoaded', () => {
+      const matchDateEl = document.getElementById('match-date');
+      if (matchDateEl) {
+        matchDateEl.addEventListener('change', () => {
+          renderSidelinePlayers();
+        });
+      }
     });
 
     // Player Stats Tracking

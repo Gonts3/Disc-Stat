@@ -5,6 +5,8 @@ export interface Player {
   assists: number;
   ds: number; // Defensive blocks
   turnovers: number;
+  throwaways: number; // false/bad throw/throw away
+  drops: number; // dropped passes
 }
 
 export interface AttendanceRecord {
