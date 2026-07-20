@@ -17,7 +17,10 @@ import {
   Award,
   ChevronRight,
   Info,
-  RotateCcw
+  RotateCcw,
+  Camera,
+  UploadCloud,
+  Eye
 } from "lucide-react";
 import { Player, AttendanceRecord, PracticeLog, ScrimmageMatch } from "./types";
 import { DEFAULT_PLAYERS, exportToCSV, generateSingleFileHTML } from "./utils";
@@ -79,6 +82,12 @@ export default function App() {
   const [matchOpponent, setMatchOpponent] = useState("Light vs Dark");
   const [lightScore, setLightScore] = useState(0);
   const [darkScore, setDarkScore] = useState(0);
+
+  // --- Photo Upload, Lightbox & Delete confirmation States ---
+  const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
+  const [deletingMatchId, setDeletingMatchId] = useState<string | null>(null);
 
   // --- Synchronize with localStorage ---
   useEffect(() => {
@@ -182,12 +191,14 @@ export default function App() {
       id: Math.random().toString(36).substring(2, 9),
       date: practiceDate,
       focus,
-      notes
+      notes,
+      photo: uploadedPhoto || undefined
     };
 
     setPracticeLogs([newLog, ...practiceLogs]);
     setPracticeFocus("");
     setPracticeNotes("");
+    setUploadedPhoto(null);
     triggerToast("Practice log saved!");
   };
 
@@ -539,12 +550,100 @@ export default function App() {
                   />
                 </div>
 
+                {/* End of Session Photo Upload Option */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-black text-slate-500 uppercase flex items-center space-x-1.5">
+                    <Camera className="w-3.5 h-3.5 text-sky-500" />
+                    <span>End of Session Photo (Our Tradition 📸)</span>
+                  </label>
+                  
+                  {uploadedPhoto ? (
+                    <div className="relative rounded-2xl border border-slate-200 overflow-hidden bg-slate-50 p-2.5 flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <img 
+                          src={uploadedPhoto} 
+                          alt="End of session preview" 
+                          className="w-14 h-14 object-cover rounded-xl border border-slate-200"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="text-left">
+                          <p className="text-xs font-bold text-slate-700">Tradition Photo Loaded!</p>
+                          <p className="text-[10px] text-slate-400 font-medium">Will save with notes below</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setUploadedPhoto(null)}
+                        className="p-1.5 rounded-full bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-500 transition-colors mr-1"
+                        title="Remove photo"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsDragging(true);
+                      }}
+                      onDragLeave={() => setIsDragging(false)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setIsDragging(false);
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (event) => {
+                            if (typeof event.target?.result === "string") {
+                              setUploadedPhoto(event.target.result);
+                              triggerToast("Tradition photo loaded!");
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      className={`border-2 border-dashed rounded-2xl p-5 text-center cursor-pointer transition-all ${
+                        isDragging 
+                          ? "border-sky-500 bg-sky-50/50" 
+                          : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-slate-100/50"
+                      }`}
+                      onClick={() => {
+                        const fileInput = document.getElementById("practice-photo-upload");
+                        fileInput?.click();
+                      }}
+                    >
+                      <input
+                        id="practice-photo-upload"
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                              if (typeof event.target?.result === "string") {
+                                setUploadedPhoto(event.target.result);
+                                triggerToast("Tradition photo loaded!");
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                      <UploadCloud className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                      <p className="text-xs font-black text-slate-700">Drag & drop your tradition photo here</p>
+                      <p className="text-[10px] text-slate-400 mt-1">or click to browse from device</p>
+                    </div>
+                  )}
+                </div>
+
                 <button
                   type="submit"
                   className="w-full bg-sky-600 hover:bg-sky-700 active:scale-98 text-white py-3.5 rounded-2xl font-black text-sm transition-all shadow-md flex justify-center items-center space-x-2"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Save Practice Log</span>
+                  <span>Save Practice Log & Photo</span>
                 </button>
               </form>
 
@@ -578,6 +677,27 @@ export default function App() {
                         <p className="text-xs text-slate-500 leading-relaxed whitespace-pre-wrap pl-5 border-l-2 border-slate-100">
                           {log.notes}
                         </p>
+
+                        {/* Tradition photo preview */}
+                        {log.photo && (
+                          <div className="mt-3 pl-5">
+                            <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5 flex items-center space-x-1">
+                              <Camera className="w-3 h-3 text-sky-500" />
+                              <span>Session Tradition Photo</span>
+                            </span>
+                            <div className="relative group max-w-xs cursor-zoom-in" onClick={() => setLightboxPhoto(log.photo || null)}>
+                              <img 
+                                src={log.photo} 
+                                alt="End of Session Tradition" 
+                                className="rounded-xl border border-slate-100 max-h-40 w-full object-cover shadow-sm group-hover:brightness-95 transition-all"
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl">
+                                <Eye className="w-5 h-5 text-white drop-shadow" />
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -604,18 +724,18 @@ export default function App() {
               </div>
 
               {/* SECTION 1: LIVE GAME SCOREBOARD */}
-              <div className="bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 text-white p-5 rounded-3xl shadow-lg border border-slate-800 space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-150 space-y-4 text-slate-800">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                   <div className="flex items-center space-x-2">
-                    <Calendar className="w-4 h-4 text-sky-400" />
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Scrimmage Date & Opponent</span>
+                    <Calendar className="w-4 h-4 text-sky-500" />
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Scrimmage Date & Opponent</span>
                   </div>
                   <input
                     type="date"
                     value={matchDate}
                     onChange={(e) => setMatchDate(e.target.value)}
                     required
-                    className="border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500 bg-slate-950"
+                    className="border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500 bg-slate-50"
                   />
                 </div>
 
@@ -626,7 +746,7 @@ export default function App() {
                       value={matchOpponent}
                       onChange={(e) => setMatchOpponent(e.target.value)}
                       placeholder="e.g. Scrimmage Drill or Opponent Name"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-bold text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
                     />
                   </div>
                 </div>
@@ -634,45 +754,45 @@ export default function App() {
                 {/* Scoreboard Column Grid */}
                 <div className="grid grid-cols-2 gap-4">
                   {/* Light Team (White styling) */}
-                  <div className="bg-slate-950 border border-slate-800/80 p-4 rounded-2xl text-center space-y-3 shadow-md relative overflow-hidden">
-                    <div className="absolute top-0 left-0 right-0 h-1 bg-white/40"></div>
-                    <span className="block text-[10px] font-black text-slate-300 uppercase tracking-wider">Light Team</span>
-                    <div className="text-5xl font-black text-white font-mono">{lightScore}</div>
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl text-center space-y-3 shadow-sm relative overflow-hidden">
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-sky-400"></div>
+                    <span className="block text-[10px] font-black text-slate-500 uppercase tracking-wider">Light Team</span>
+                    <div className="text-5xl font-black text-slate-900 font-mono">{lightScore}</div>
                     <div className="flex items-center justify-center space-x-2">
                       <button
                         type="button"
                         onClick={() => setLightScore(prev => Math.max(0, prev - 1))}
-                        className="w-10 h-10 rounded-full bg-slate-900 border border-slate-850 flex items-center justify-center font-black text-lg text-slate-300 active:bg-slate-800 active:scale-95 transition-transform"
+                        className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center font-black text-lg text-slate-600 hover:bg-slate-100 active:bg-slate-200 active:scale-95 transition-transform"
                       >
                         -
                       </button>
                       <button
                         type="button"
                         onClick={() => setLightScore(prev => prev + 1)}
-                        className="w-12 h-12 rounded-full bg-white text-slate-950 flex items-center justify-center font-black text-2xl shadow-sm active:bg-slate-200 active:scale-95 transition-transform"
+                        className="w-12 h-12 rounded-full bg-slate-900 text-white flex items-center justify-center font-black text-2xl shadow-sm active:bg-slate-800 active:scale-95 transition-transform"
                       >
                         +
                       </button>
                     </div>
                   </div>
 
-                  {/* Dark Team (Navy styling) */}
-                  <div className="bg-slate-950 border border-slate-800/80 p-4 rounded-2xl text-center space-y-3 shadow-md relative overflow-hidden">
-                    <div className="absolute top-0 left-0 right-0 h-1 bg-sky-500/80"></div>
+                  {/* Dark Team (Navy/Slate styling) */}
+                  <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl text-center space-y-3 shadow-md relative overflow-hidden text-white">
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-indigo-500"></div>
                     <span className="block text-[10px] font-black text-sky-400 uppercase tracking-wider">Dark Team</span>
                     <div className="text-5xl font-black text-white font-mono">{darkScore}</div>
                     <div className="flex items-center justify-center space-x-2">
                       <button
                         type="button"
                         onClick={() => setDarkScore(prev => Math.max(0, prev - 1))}
-                        className="w-10 h-10 rounded-full bg-slate-900 border border-slate-850 flex items-center justify-center font-black text-lg text-slate-300 active:bg-slate-800 active:scale-95 transition-transform"
+                        className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-black text-lg text-slate-300 hover:bg-slate-700 active:scale-95 transition-transform"
                       >
                         -
                       </button>
                       <button
                         type="button"
                         onClick={() => setDarkScore(prev => prev + 1)}
-                        className="w-12 h-12 rounded-full bg-sky-600 flex items-center justify-center font-black text-2xl text-white shadow-md shadow-sky-500/20 active:bg-sky-700 active:scale-95 transition-transform"
+                        className="w-12 h-12 rounded-full bg-white text-slate-900 flex items-center justify-center font-black text-2xl shadow-sm hover:bg-slate-100 active:scale-95 transition-transform"
                       >
                         +
                       </button>
@@ -683,7 +803,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={handleSaveMatch}
-                  className="w-full bg-slate-800 hover:bg-slate-750 active:scale-98 text-white py-3 rounded-xl font-black text-xs transition-all flex justify-center items-center space-x-2 border border-slate-700"
+                  className="w-full bg-slate-900 hover:bg-slate-800 active:scale-98 text-white py-3.5 rounded-2xl font-black text-sm transition-all flex justify-center items-center space-x-2 shadow-sm"
                 >
                   <Check className="w-4 h-4 text-sky-400" />
                   <span>Save Scrimmage Match Score</span>
@@ -1062,8 +1182,21 @@ export default function App() {
                       const won = m.ourScore > m.opponentScore;
                       const lost = m.ourScore < m.opponentScore;
                       const isTie = m.ourScore === m.opponentScore;
-                      const badgeBg = won ? "bg-slate-50 border border-slate-200 text-slate-800" : lost ? "bg-slate-900 text-white border border-slate-800" : "bg-sky-50 border border-sky-150 text-sky-800";
-                      const badgeLabel = won ? "Light Win 🏆" : lost ? "Dark Win 🏆" : "Draw 🤝";
+
+                      // Background highlights: light background for Light won, dark background for Dark won
+                      const badgeBg = won 
+                        ? "bg-slate-50 border-slate-200 text-slate-800" 
+                        : lost 
+                          ? "bg-slate-950 border-slate-950 text-white" 
+                          : "bg-slate-100 border-slate-200 text-slate-500";
+
+                      // Winner label: says Light Win or Opponent/Dark Win based on top text input
+                      const isDefaultOpp = !m.opponent || m.opponent.trim().toLowerCase() === "light vs dark" || m.opponent.trim().toLowerCase() === "dark";
+                      const badgeLabel = won 
+                        ? "Light Win 🏆" 
+                        : lost 
+                          ? (isDefaultOpp ? "Dark Win 🏆" : `${m.opponent} Win 🏆`) 
+                          : "Draw 🤝";
 
                       return (
                         <div key={m.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex justify-between items-center relative">
@@ -1080,16 +1213,41 @@ export default function App() {
                           </div>
 
                           <div className="flex items-center space-x-2">
-                            <span className={`${badgeBg} px-2 py-1 rounded-full flex items-center justify-center text-[10px] font-black shadow-sm border`}>
+                            <span className={`${badgeBg} px-2.5 py-1 rounded-full flex items-center justify-center text-[10px] font-black shadow-sm border`}>
                               {badgeLabel}
                             </span>
-                            <button
-                              onClick={() => handleDeleteMatch(m.id)}
-                              className="text-slate-300 hover:text-rose-500 transition-colors p-1"
-                              title="Delete Match Record"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            
+                            {deletingMatchId === m.id ? (
+                              <div className="flex items-center space-x-1 bg-rose-50 border border-rose-100 p-1 rounded-xl">
+                                <span className="text-[9px] font-black text-rose-700 uppercase px-1">Delete?</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMatches(matches.filter(item => item.id !== m.id));
+                                    setDeletingMatchId(null);
+                                    triggerToast("Deleted scrimmage record");
+                                  }}
+                                  className="bg-rose-600 hover:bg-rose-700 text-white font-black text-[9px] px-2 py-1 rounded transition-colors"
+                                >
+                                  Yes
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingMatchId(null)}
+                                  className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-black text-[9px] px-2 py-1 rounded transition-colors"
+                                >
+                                  No
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setDeletingMatchId(m.id)}
+                                className="text-slate-300 hover:text-rose-500 transition-colors p-1"
+                                title="Delete Match Record"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
@@ -1172,13 +1330,13 @@ export default function App() {
                   <div className="flex items-start space-x-2.5">
                     <span className="bg-sky-500/20 text-sky-400 w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0">3</span>
                     <p className="text-slate-300">
-                      Select <strong class="text-sky-400">"Add to Home screen"</strong> from the popup option menu.
+                      Select <strong className="text-sky-400">"Add to Home screen"</strong> from the popup option menu.
                     </p>
                   </div>
                   <div className="flex items-start space-x-2.5">
                     <span className="bg-sky-500/20 text-sky-400 w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0">4</span>
                     <p className="text-slate-300">
-                      Give it a clean name like <strong class="text-white">"DiscForce"</strong> and press Add. The icon is now ready to use offline!
+                      Give it a clean name like <strong className="text-white">"DiscForce"</strong> and press Add. The icon is now ready to use offline!
                     </p>
                   </div>
                 </div>
@@ -1237,6 +1395,47 @@ export default function App() {
           </button>
         </div>
       </nav>
+
+      {/* LIGHTBOX MODAL FOR TRADITION PHOTOS */}
+      <AnimatePresence>
+        {lightboxPhoto && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-950/90 z-50 flex items-center justify-center p-4 backdrop-blur-sm"
+            onClick={() => setLightboxPhoto(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.95 }}
+              className="relative max-w-lg w-full bg-slate-900 rounded-3xl p-3 border border-slate-800 shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <img 
+                src={lightboxPhoto} 
+                alt="Enlarged Tradition Photo" 
+                className="w-full h-auto max-h-[70vh] object-contain rounded-2xl border border-slate-800 bg-slate-950"
+                referrerPolicy="no-referrer"
+              />
+              <div className="flex justify-between items-center mt-3 px-2">
+                <span className="text-[11px] font-bold text-slate-400 flex items-center space-x-1">
+                  <Camera className="w-3.5 h-3.5 text-sky-500" />
+                  <span>Session Tradition Photo</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setLightboxPhoto(null)}
+                  className="bg-slate-800 hover:bg-rose-950 hover:text-rose-400 text-slate-300 px-3 py-1.5 rounded-xl text-xs font-black transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

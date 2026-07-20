@@ -20,6 +20,7 @@ export interface PracticeLog {
   date: string;
   focus: string;
   notes: string;
+  photo?: string; // Base64 data URL for end of session picture
 }
 
 export interface ScrimmageMatch {
