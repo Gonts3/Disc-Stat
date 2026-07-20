@@ -66,25 +66,43 @@ export function exportToCSV(players: Player[], attendance: AttendanceRecord[], l
   URL.revokeObjectURL(url);
 }
 
-export function generateSingleFileHTML(players: Player[], attendance: AttendanceRecord[], logs: PracticeLog[], matches: ScrimmageMatch[]): string {
+export function generateSingleFileHTML(players: Player[], attendance: AttendanceRecord[], logs: PracticeLog[], matches: ScrimmageMatch[], tailwindCode: string = ""): string {
   // We serialize the initial state from the client to bundle their current data straight into the file
-  const serializedData = JSON.stringify({ players, attendance, practiceLogs: logs, matches });
+  const serializedData = JSON.stringify({ players, attendance, practiceLogs: logs, matches, exportTimestamp: Date.now() });
+
+  const tailwindScriptTag = tailwindCode
+    ? `<script>${tailwindCode}</script>`
+    : `<script src="https://cdn.tailwindcss.com"></script>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>DiscForce - Ultimate Frisbee Manager</title>
+  <title>DiscStat - Ultimate Frisbee Manager</title>
+  <!-- Google Fonts -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap">
   <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  ${tailwindScriptTag}
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
   <style>
     /* Prevent text selection and long-press menus on mobile for an app-like feel */
     body {
       -webkit-touch-callout: none;
       -webkit-user-select: none;
       user-select: none;
-      font-family: system-ui, -apple-system, sans-serif;
+      font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
     }
     input, textarea {
       -webkit-user-select: text;
@@ -114,7 +132,7 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
         <circle cx="12" cy="12" r="10" />
         <ellipse cx="12" cy="12" rx="10" ry="3" transform="rotate(-30 12 12)" />
       </svg>
-      <span class="text-xl font-black tracking-wider text-sky-400">DISCFORCE</span>
+      <span class="text-xl font-black tracking-wider text-sky-400">DISCSTAT</span>
     </div>
     <div class="text-xs text-slate-300 font-mono">OFFLINE MODE</div>
   </header>
@@ -190,6 +208,58 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
           <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Session Notes & Drill Details</label>
           <textarea id="practice-notes" rows="4" placeholder="Drills run, attendance highlights, wind conditions..." required
             class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 text-sm"></textarea>
+        </div>
+
+        <!-- Who Attended (Attendance) Section -->
+        <div class="space-y-3">
+          <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider">Who Attended? (Attendance)</label>
+          
+          <div class="flex space-x-2">
+            <input type="text" id="offline-attendee-input" placeholder="Type name of attendee..."
+              class="flex-grow px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 text-sm">
+            <button type="button" onclick="addOfflineAttendee()" class="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg font-semibold text-xs transition-colors flex items-center space-x-1 shadow-sm">
+              <span>Add</span>
+            </button>
+          </div>
+
+          <!-- Quick Select from Registered Roster -->
+          <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-1.5">
+            <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quick Select from Registered Roster:</span>
+            <div id="offline-roster-toggles" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+              <!-- Dynamic roster toggle chips -->
+            </div>
+          </div>
+
+          <!-- Current Attendance List -->
+          <div class="space-y-1.5">
+            <div class="flex justify-between items-center">
+              <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Current Attendance List:</span>
+              <span id="offline-attendance-count" class="bg-sky-100 text-sky-800 text-[10px] px-2 py-0.5 rounded-full font-bold">0 Attending</span>
+            </div>
+            <div id="offline-attendees-list" class="flex flex-wrap gap-1.5 bg-slate-50 p-3 rounded-xl border border-slate-100 max-h-32 overflow-y-auto">
+              <!-- Attendees chips -->
+            </div>
+          </div>
+        </div>
+
+        <!-- End of Session Photo Option -->
+        <div class="space-y-1.5">
+          <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider">End of Session Photo (📸 Tradition)</label>
+          <div id="offline-photo-preview-container" class="hidden relative rounded-xl border border-slate-200 overflow-hidden bg-slate-50 p-2.5 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <img id="offline-photo-preview-img" src="" alt="Session Tradition preview" class="w-14 h-14 object-cover rounded-lg border border-slate-200">
+              <div class="text-left">
+                <p class="text-xs font-bold text-slate-700">Tradition Photo Loaded!</p>
+              </div>
+            </div>
+            <button type="button" onclick="removeOfflinePhoto()" class="p-1 rounded-full bg-slate-100 text-slate-500 hover:bg-rose-100 hover:text-rose-600 transition-colors">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <div id="offline-photo-upload-box" class="border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-slate-100/50" onclick="document.getElementById('offline-photo-upload-input').click()">
+            <input id="offline-photo-upload-input" type="file" accept="image/*" class="hidden" onchange="handleOfflinePhotoUpload(event)">
+            <p class="text-xs font-bold text-slate-700">Click to upload tradition photo</p>
+          </div>
         </div>
 
         <button type="submit" class="w-full bg-sky-600 hover:bg-sky-700 text-white py-3 rounded-xl font-bold text-sm transition-colors shadow-sm flex justify-center items-center space-x-2">
@@ -360,6 +430,16 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
               <button onclick="incrementStat('turnovers', 1)" class="flex-1 bg-rose-600 text-white font-black py-2 rounded-xl text-lg hover:bg-rose-700 active:scale-95 transition-all shadow-sm">+1</button>
             </div>
           </div>
+
+          <!-- Drops (DP) -->
+          <div class="bg-teal-50 border border-teal-100 p-4 rounded-2xl flex flex-col justify-between items-center col-span-2 sm:col-span-1">
+            <span class="text-xs font-extrabold text-teal-800 uppercase tracking-widest">DROPS</span>
+            <div class="text-4xl font-black text-teal-900 my-2" id="stat-val-drops">0</div>
+            <div class="flex space-x-2 w-full">
+              <button onclick="incrementStat('drops', -1)" class="flex-1 bg-white hover:bg-teal-100 text-teal-900 border border-teal-200 font-black py-2 rounded-xl text-lg">-</button>
+              <button onclick="incrementStat('drops', 1)" class="flex-1 bg-teal-600 text-white font-black py-2 rounded-xl text-lg hover:bg-teal-700 active:scale-95 transition-all shadow-sm">+1</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -375,6 +455,7 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
                 <th class="py-2 text-center">A</th>
                 <th class="py-2 text-center">D</th>
                 <th class="py-2 text-center">T</th>
+                <th class="py-2 text-center">DP</th>
               </tr>
             </thead>
             <tbody id="stats-leaderboard-body" class="divide-y divide-slate-50 text-slate-600 font-medium">
@@ -413,6 +494,14 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
           </svg>
           <span>Get Offline Single-File HTML App</span>
         </button>
+
+        <!-- Reset Phone Cache and Force Sync -->
+        <button onclick="resetPhoneCache()" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 px-4 rounded-xl font-bold text-xs transition-all border border-slate-200 flex items-center justify-center space-x-2">
+          <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          <span>Reset Phone Cache & Load original file data</span>
+        </button>
       </div>
 
       <!-- Add to Home Screen Instructions for Android -->
@@ -443,7 +532,7 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
           </div>
           <div class="flex items-start space-x-2">
             <span class="bg-sky-400/50 w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0">4</span>
-            <p class="text-sky-100">Give it a name like <strong class="text-white">DiscForce</strong>. An icon will be added to your home screen, opening in a distraction-free window!</p>
+            <p class="text-sky-100">Give it a name like <strong class="text-white">DiscStat</strong>. An icon will be added to your home screen, opening in a distraction-free window!</p>
           </div>
         </div>
       </div>
@@ -453,29 +542,17 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
 
   <!-- BOTTOM THUMB NAVIGATION RAIL -->
   <nav class="fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 text-slate-400 z-50 shadow-xl max-w-md mx-auto rounded-t-2xl">
-    <div class="grid grid-cols-5 h-16 text-[10px] font-bold">
-      <!-- Attendance & Roster Tab -->
-      <button onclick="switchTab('roster')" id="nav-roster" class="flex flex-col items-center justify-center space-y-1 active:scale-95 transition-transform text-sky-400">
+    <div class="grid grid-cols-3 h-16 text-[10px] font-bold">
+      <!-- Attendance Tab -->
+      <button onclick="switchTab('attendance')" id="nav-attendance" class="flex flex-col items-center justify-center space-y-1 active:scale-95 transition-transform text-sky-400">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-        <span>Roster</span>
-      </button>
-
-      <!-- Practice Log Tab -->
-      <button onclick="switchTab('practice')" id="nav-practice" class="flex flex-col items-center justify-center space-y-1 active:scale-95 transition-transform">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-        <span>Practice</span>
+        <span>Attendance</span>
       </button>
 
       <!-- Scrimmage Tab -->
       <button onclick="switchTab('scrimmage')" id="nav-scrimmage" class="flex flex-col items-center justify-center space-y-1 active:scale-95 transition-transform">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-        <span>Scrimmage</span>
-      </button>
-
-      <!-- Stats Tab -->
-      <button onclick="switchTab('stats')" id="nav-stats" class="flex flex-col items-center justify-center space-y-1 active:scale-95 transition-transform">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2" /></svg>
-        <span>Stats</span>
+        <span>Scrimmage & Stats</span>
       </button>
 
       <!-- Export Tab -->
@@ -489,7 +566,7 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
   <!-- SCRIPT LOGIC -->
   <script>
     // Load initial embedded data, otherwise look into localStorage, otherwise fallback
-    let initialEmbeddedData = ${serializedData};
+    let initialEmbeddedData = JSON.parse(decodeURIComponent("${encodeURIComponent(serializedData)}"));
     let appData = {
       players: [],
       attendance: [],
@@ -499,13 +576,43 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
     
     let lastAction = null;
     let sidelineFilterPresentOnly = true;
+    let offlineAttendees = [];
+    let offlinePhoto = null;
+    let expandedLogIds = [];
 
     // Load state from localStorage or initial bundle
     function loadState() {
-      const stored = localStorage.getItem('discforce_team_data');
+      let stored = null;
+      try {
+        stored = localStorage.getItem('discstat_team_data') || localStorage.getItem('discforce_team_data');
+      } catch (e) {
+        console.warn("localStorage is not readable on this origin. Falling back to embedded file data.", e);
+      }
+
       if (stored) {
         try {
           appData = JSON.parse(stored);
+          
+          // Ensure any missing fields on players are defaulted (like drops or throwaways)
+          if (appData && Array.isArray(appData.players)) {
+            appData.players = appData.players.map(p => ({
+              ...p,
+              throwaways: p.throwaways ?? 0,
+              drops: p.drops ?? 0
+            }));
+          }
+          
+          // Check if this newly opened HTML file contains newer data than what's stored in browser cache
+          const fileTime = initialEmbeddedData.exportTimestamp || 0;
+          const storedTime = appData.exportTimestamp || 0;
+          
+          if (fileTime > storedTime) {
+            const message = "📦 Newer Stats & Roster Detected!\n\nThis file contains a fresh export with newer team data. Would you like to import it?\n\n- Click OK to load the newly exported stats & roster.\n- Click Cancel to keep your phone's current sideline edits instead.";
+            if (confirm(message)) {
+              appData = initialEmbeddedData;
+              saveState();
+            }
+          }
         } catch (e) {
           appData = initialEmbeddedData;
         }
@@ -516,13 +623,27 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
     }
 
     function saveState() {
-      localStorage.setItem('discforce_team_data', JSON.stringify(appData));
+      appData.exportTimestamp = Date.now();
+      try {
+        localStorage.setItem('discstat_team_data', JSON.stringify(appData));
+      } catch (e) {
+        console.warn("localStorage is not writable on this origin.", e);
+      }
     }
 
     // Tab Switching
     function switchTab(tabId) {
       document.querySelectorAll('.app-section').forEach(s => s.classList.add('hidden'));
-      document.getElementById('section-' + tabId).classList.remove('hidden');
+
+      if (tabId === 'attendance') {
+        document.getElementById('section-roster').classList.remove('hidden');
+        document.getElementById('section-practice').classList.remove('hidden');
+      } else if (tabId === 'scrimmage') {
+        document.getElementById('section-scrimmage').classList.remove('hidden');
+        document.getElementById('section-stats').classList.remove('hidden');
+      } else if (tabId === 'export') {
+        document.getElementById('section-export').classList.remove('hidden');
+      }
 
       // Update Active Navigation Item Color
       document.querySelectorAll('nav button').forEach(btn => {
@@ -533,14 +654,14 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
       document.getElementById('nav-' + tabId).classList.remove('text-slate-400');
 
       // Extra loads for specific tabs
-      if (tabId === 'roster') {
+      if (tabId === 'attendance') {
         renderRosterSection();
-      } else if (tabId === 'practice') {
+        renderPracticeRosterToggles();
+        renderOfflineAttendeesList();
         renderPracticeLogs();
       } else if (tabId === 'scrimmage') {
         renderMatches();
         renderSidelinePlayers();
-      } else if (tabId === 'stats') {
         loadPlayerStatsDropdown();
         loadPlayerStats();
         renderLeaderboard();
@@ -553,6 +674,11 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
       document.getElementById('attendance-date').value = today;
       document.getElementById('practice-date').value = today;
       document.getElementById('match-date').value = today;
+
+      // Dynamically update the player roster checklist whenever the attendance date is changed
+      document.getElementById('attendance-date').addEventListener('change', () => {
+        renderRosterSection();
+      });
     }
 
     // Adjust Input utilities for plus/minus counters
@@ -684,7 +810,9 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
         goals: 0,
         assists: 0,
         ds: 0,
-        turnovers: 0
+        turnovers: 0,
+        throwaways: 0,
+        drops: 0
       };
 
       appData.players.push(newPlayer);
@@ -692,6 +820,119 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
       nameInput.value = '';
       renderRosterSection();
     });
+
+    // Offline Attendee & Photo Helpers
+    function renderPracticeRosterToggles() {
+      const container = document.getElementById('offline-roster-toggles');
+      if (!container) return;
+      container.innerHTML = '';
+      
+      if (appData.players.length === 0) {
+        container.innerHTML = '<span class="text-[10px] text-slate-400 font-bold italic">No players registered in roster yet.</span>';
+        return;
+      }
+      
+      appData.players.forEach(p => {
+        const isAdded = offlineAttendees.includes(p.name);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = \`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all flex items-center space-x-1 \${
+          isAdded
+            ? 'bg-sky-600 border-sky-600 text-white shadow-sm'
+            : 'bg-white hover:bg-slate-100 border-slate-200 text-slate-700'
+        }\`;
+        btn.innerHTML = \`<span>\${p.name}</span>\`;
+        btn.onclick = () => {
+          toggleOfflineAttendee(p.name);
+        };
+        container.appendChild(btn);
+      });
+    }
+
+    function toggleOfflineAttendee(name) {
+      if (offlineAttendees.includes(name)) {
+        offlineAttendees = offlineAttendees.filter(n => n !== name);
+      } else {
+        offlineAttendees.push(name);
+      }
+      renderPracticeRosterToggles();
+      renderOfflineAttendeesList();
+    }
+
+    function addOfflineAttendee() {
+      const input = document.getElementById('offline-attendee-input');
+      const name = input.value.trim();
+      if (!name) return;
+      if (offlineAttendees.includes(name)) {
+        alert(name + " is already added!");
+        return;
+      }
+      offlineAttendees.push(name);
+      input.value = '';
+      renderPracticeRosterToggles();
+      renderOfflineAttendeesList();
+    }
+
+    function removeOfflineAttendee(name) {
+      offlineAttendees = offlineAttendees.filter(n => n !== name);
+      renderPracticeRosterToggles();
+      renderOfflineAttendeesList();
+    }
+
+    function renderOfflineAttendeesList() {
+      const container = document.getElementById('offline-attendees-list');
+      const countEl = document.getElementById('offline-attendance-count');
+      if (!container || !countEl) return;
+      container.innerHTML = '';
+      countEl.textContent = offlineAttendees.length + ' Attending';
+      
+      if (offlineAttendees.length === 0) {
+        container.innerHTML = '<p class="text-xs text-slate-400 italic text-center w-full">No attendees added yet. Add names above or select from roster.</p>';
+        return;
+      }
+      
+      offlineAttendees.forEach(name => {
+        const chip = document.createElement('span');
+        chip.className = "inline-flex items-center space-x-1 bg-sky-50 text-sky-800 border border-sky-100 px-2.5 py-1 rounded-xl text-xs font-bold shadow-sm";
+        chip.innerHTML = \`
+          <span>\${name}</span>
+          <button type="button" class="text-sky-600 hover:text-rose-500 font-bold focus:outline-none ml-1.5" onclick="removeOfflineAttendee('\${name.replace(/'/g, "\\\\'")}')">
+            &times;
+          </button>
+        \`;
+        container.appendChild(chip);
+      });
+    }
+
+    function handleOfflinePhotoUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        offlinePhoto = e.target.result;
+        document.getElementById('offline-photo-preview-img').src = offlinePhoto;
+        document.getElementById('offline-photo-preview-container').classList.remove('hidden');
+        document.getElementById('offline-photo-upload-box').classList.add('hidden');
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function removeOfflinePhoto() {
+      offlinePhoto = null;
+      document.getElementById('offline-photo-preview-img').src = '';
+      document.getElementById('offline-photo-preview-container').classList.add('hidden');
+      document.getElementById('offline-photo-upload-box').classList.remove('hidden');
+      document.getElementById('offline-photo-upload-input').value = '';
+    }
+
+    function toggleLogExpanded(id) {
+      if (expandedLogIds.includes(id)) {
+        expandedLogIds = expandedLogIds.filter(x => x !== id);
+      } else {
+        expandedLogIds.push(id);
+      }
+      renderPracticeLogs();
+    }
 
     // Practice Log Rendering
     function renderPracticeLogs() {
@@ -706,17 +947,89 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
       // Sort logs by date desc
       const sorted = [...appData.practiceLogs].sort((a,b) => b.date.localeCompare(a.date));
       sorted.forEach(log => {
+        const isExpanded = expandedLogIds.includes(log.id);
         const card = document.createElement('div');
-        card.className = "bg-white p-4 rounded-xl shadow-sm border border-slate-100 space-y-2";
+        card.className = \`bg-white p-4 rounded-xl shadow-sm border transition-all cursor-pointer select-none relative \${
+          isExpanded ? 'border-sky-500 ring-1 ring-sky-100' : 'border-slate-100 hover:border-slate-300'
+        }\`;
+        card.onclick = () => toggleLogExpanded(log.id);
+
+        let detailsHtml = '';
+        if (isExpanded) {
+          detailsHtml = \`
+            <div class="space-y-3 mt-3 pt-3 border-t border-slate-100" onclick="event.stopPropagation()">
+              \${log.notes ? \`
+                <div class="space-y-1">
+                  <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Session Notes & Drills</span>
+                  <p class="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap pl-3 border-l-2 border-sky-400">\${log.notes}</p>
+                </div>
+              \` : ''}
+
+              \${log.attendance ? \`
+                <div class="space-y-1.5">
+                  <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center space-x-1">
+                    <svg class="w-3 h-3 text-sky-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                    <span>Who Attended (\${log.attendance.split(',').length})</span>
+                  </span>
+                  <div class="flex flex-wrap gap-1">
+                    \${log.attendance.split(',').map(name => name.trim()).filter(Boolean).map(name => \`
+                      <span class="bg-slate-50 text-slate-750 border border-slate-200 px-2.5 py-1 rounded-xl text-[10px] font-bold flex items-center shadow-sm">
+                        <span class="text-sky-500 mr-1">•</span>
+                        <span>\${name}</span>
+                      </span>
+                    \`).join('')}
+                  </div>
+                </div>
+              \` : ''}
+
+              \${log.photo ? \`
+                <div class="space-y-1.5">
+                  <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center space-x-1">
+                    <svg class="w-3 h-3 text-sky-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039a48.774 48.774 0 00-5.232 0a2.192 2.192 0 00-1.736 1.039l-.821 1.316z"/><circle cx="12" cy="13" r="3" /></svg>
+                    <span>Session Tradition Photo</span>
+                  </span>
+                  <div class="max-w-xs">
+                    <img src="\${log.photo}" alt="Session Tradition" class="rounded-lg border border-slate-100 max-h-40 w-full object-cover shadow-sm">
+                  </div>
+                </div>
+              \` : ''}
+            </div>
+          \`;
+        }
+
+        const attendanceCountBadge = (!isExpanded && log.attendance) ? \`
+          <span class="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
+            \${log.attendance.split(',').length} Attended
+          </span>
+        \` : '';
+
         card.innerHTML = \`
-          <div class="flex justify-between items-start">
-            <span class="text-xs font-bold text-sky-600">\${log.date}</span>
-            <button onclick="deletePracticeLog('\${log.id}')" class="text-slate-300 hover:text-rose-500 transition-colors p-0.5">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-            </button>
+          <div class="flex justify-between items-center">
+            <span class="text-xs font-bold text-sky-600 flex items-center space-x-1">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+              <span>\${log.date}</span>
+            </span>
+            <div class="flex items-center space-x-2" onclick="event.stopPropagation()">
+              <button onclick="deletePracticeLog('\${log.id}')" class="text-slate-300 hover:text-rose-500 transition-colors p-0.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              </button>
+              <div class="text-slate-400">
+                \${isExpanded ? \`
+                  <svg class="w-4 h-4 text-sky-500" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" /></svg>
+                \` : \`
+                  <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                \`}
+              </div>
+            </div>
           </div>
-          <h4 class="font-bold text-slate-800 text-sm">\${log.focus}</h4>
-          <p class="text-xs text-slate-500 leading-relaxed whitespace-pre-wrap">\${log.notes}</p>
+          <div class="flex justify-between items-center mt-1">
+            <h4 class="font-bold text-slate-800 text-sm flex items-center space-x-1.5">
+              <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              <span>\${log.focus}</span>
+            </h4>
+            \${attendanceCountBadge}
+          </div>
+          \${detailsHtml}
         \`;
         container.appendChild(card);
       });
@@ -738,12 +1051,18 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
       const notes = document.getElementById('practice-notes').value.trim();
 
       if (!date || !focus || !notes) return;
+      if (offlineAttendees.length === 0) {
+        alert("Please add at least one attendee to save practice log!");
+        return;
+      }
 
       const newLog = {
         id: Math.random().toString(36).substring(2, 9),
         date,
         focus,
-        notes
+        notes,
+        attendance: offlineAttendees.join(', '),
+        photo: offlinePhoto || undefined
       };
 
       appData.practiceLogs.push(newLog);
@@ -752,6 +1071,11 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
       // Reset form (keep date)
       document.getElementById('practice-focus').value = '';
       document.getElementById('practice-notes').value = '';
+      offlineAttendees = [];
+      offlinePhoto = null;
+      removeOfflinePhoto();
+      renderPracticeRosterToggles();
+      renderOfflineAttendeesList();
 
       alert("Practice log saved!");
       renderPracticeLogs();
@@ -940,7 +1264,7 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
         div.innerHTML = \`
           <div class="truncate pr-2">
             <span class="font-extrabold text-slate-800 text-sm block truncate max-w-[150px]">\${p.name}</span>
-            <span class="text-[10px] font-mono font-bold text-slate-400">G:\${p.goals || 0} | A:\${p.assists || 0} | D:\${p.ds || 0} | T:\${p.turnovers || 0}</span>
+            <span class="text-[10px] font-mono font-bold text-slate-400">G:\${p.goals || 0} | A:\${p.assists || 0} | D:\${p.ds || 0} | T:\${p.turnovers || 0} | DP:\${p.drops || 0}</span>
           </div>
           <div class="flex items-center space-x-1.5 self-end sm:self-auto">
             <button type="button" onclick="sidelineLogStat('\${p.id}', 'goals', 1)" class="w-10 h-10 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs shadow-sm flex flex-col items-center justify-center active:scale-90 transition-transform">
@@ -958,6 +1282,10 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
             <button type="button" onclick="sidelineLogStat('\${p.id}', 'turnovers', 1)" class="w-10 h-10 rounded-full bg-rose-500 hover:bg-rose-600 text-white font-black text-xs shadow-sm flex flex-col items-center justify-center active:scale-90 transition-transform">
               <span class="text-[8px] font-bold text-rose-100">TURN</span>
               <span class="text-xs -mt-1 font-black">+T</span>
+            </button>
+            <button type="button" onclick="sidelineLogStat('\${p.id}', 'drops', 1)" class="w-10 h-10 rounded-full bg-teal-500 hover:bg-teal-600 text-white font-black text-xs shadow-sm flex flex-col items-center justify-center active:scale-90 transition-transform">
+              <span class="text-[8px] font-bold text-teal-100">DROP</span>
+              <span class="text-xs -mt-1 font-black">+DP</span>
             </button>
           </div>
         \`;
@@ -1005,6 +1333,7 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
       document.getElementById('stat-val-assists').textContent = player.assists || 0;
       document.getElementById('stat-val-ds').textContent = player.ds || 0;
       document.getElementById('stat-val-turnovers').textContent = player.turnovers || 0;
+      document.getElementById('stat-val-drops').textContent = player.drops || 0;
     }
 
     function incrementStat(field, amount) {
@@ -1030,14 +1359,14 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
       tbody.innerHTML = '';
 
       if (appData.players.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-400 italic">No players available.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-slate-400 italic">No players available.</td></tr>';
         return;
       }
 
-      // Sort by Goals + Assists (Contributions) Desc
+      // Sort by Contributions Desc (Goals + Assists + Ds - Turnovers - Drops)
       const sorted = [...appData.players].sort((a,b) => {
-        const scoreA = (a.goals || 0) + (a.assists || 0) + (a.ds || 0) - (a.turnovers || 0);
-        const scoreB = (b.goals || 0) + (b.assists || 0) + (b.ds || 0) - (b.turnovers || 0);
+        const scoreA = (a.goals || 0) + (a.assists || 0) + (a.ds || 0) - (a.turnovers || 0) - (a.drops || 0);
+        const scoreB = (b.goals || 0) + (b.assists || 0) + (b.ds || 0) - (b.turnovers || 0) - (b.drops || 0);
         return scoreB - scoreA;
       });
 
@@ -1050,6 +1379,7 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
           <td class="py-2.5 text-center text-sky-600 font-bold">\${p.assists || 0}</td>
           <td class="py-2.5 text-center text-indigo-600 font-bold">\${p.ds || 0}</td>
           <td class="py-2.5 text-center text-rose-500 font-bold">\${p.turnovers || 0}</td>
+          <td class="py-2.5 text-center text-teal-600 font-bold">\${p.drops || 0}</td>
         \`;
         tbody.appendChild(tr);
       });
@@ -1060,9 +1390,9 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
       let csvContent = "data:text/csv;charset=utf-8,";
       
       csvContent += "=== PLAYER STATS ===\\n";
-      csvContent += "Player Name,Goals,Assists,D's (Deflection/Blocks),Turnovers\\n";
+      csvContent += "Player Name,Goals,Assists,D's (Deflection/Blocks),Turnovers,Drops\\n";
       appData.players.forEach(p => {
-        csvContent += \`"\${p.name.replace(/"/g, '""')}",\${p.goals},\${p.assists},\${p.ds},\${p.turnovers}\\n\`;
+        csvContent += \`"\${p.name.replace(/"/g, '""')}",\${p.goals},\${p.assists},\${p.ds},\${p.turnovers},\${p.drops || 0}\\n\`;
       });
 
       csvContent += "\\n=== ATTENDANCE RECORDS ===\\n";
@@ -1100,29 +1430,40 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
     document.getElementById('export-html-btn').addEventListener('click', () => {
       // Re-generates the entire current markup but embeds the active localStorage snapshot!
       // This is a beautiful recursive self-bundler!
+      appData.exportTimestamp = Date.now();
       const currentHTML = document.documentElement.outerHTML;
-      const scriptToModify = "let initialEmbeddedData = " + JSON.stringify(appData) + ";";
+      const scriptToModify = 'let initialEmbeddedData = JSON.parse(decodeURIComponent("' + encodeURIComponent(JSON.stringify(appData)) + '"));';
       
       let htmlCopy = \`<!DOCTYPE html>\\n<html lang="en">\\n\` + currentHTML + \`\\n</html>\`;
       // Replace the initial embedded data definition in the script so the fresh file has current data baked-in!
-      const regex = /let initialEmbeddedData = \\{.*?\\};/;
+      const regex = /let initialEmbeddedData = JSON\.parse\(decodeURIComponent\("[\s\S]*?"\)\);/;
       htmlCopy = htmlCopy.replace(regex, scriptToModify);
 
       const blob = new Blob([htmlCopy], { type: "text/html;charset=utf-8" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = "discforce_ultimate_manager.html";
+      link.download = "discstat_ultimate_manager.html";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     });
 
+    // Reset local phone cache to force load original file data
+    function resetPhoneCache() {
+      if (confirm("This will clear your phone's offline sideline edits and load the original data baked into this HTML file. Proceed?")) {
+        try {
+          localStorage.removeItem('discstat_team_data');
+          localStorage.removeItem('discforce_team_data');
+        } catch(e){}
+        window.location.reload();
+      }
+    }
+
     // Global Initialization
     window.addEventListener('DOMContentLoaded', () => {
       loadState();
       initDates();
-      renderRosterSection();
-      renderLeaderboard();
+      switchTab('attendance');
     });
   </script>
 </body>

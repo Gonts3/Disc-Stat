@@ -283,12 +283,23 @@ export default function App() {
     triggerToast("CSV Downloaded!");
   };
 
-  const handleDownloadSingleFile = () => {
-    const htmlCode = generateSingleFileHTML(players, attendance, practiceLogs, matches);
+  const handleDownloadSingleFile = async () => {
+    triggerToast("Preparing offline bundle...");
+    let tailwindCode = "";
+    try {
+      const res = await fetch("https://cdn.tailwindcss.com");
+      if (res.ok) {
+        tailwindCode = await res.text();
+      }
+    } catch (e) {
+      console.warn("Could not pre-fetch Tailwind CDN for offline packaging, falling back to CDN script tag.", e);
+    }
+
+    const htmlCode = generateSingleFileHTML(players, attendance, practiceLogs, matches, tailwindCode);
     const blob = new Blob([htmlCode], { type: "text/html;charset=utf-8" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = "discforce_ultimate_manager.html";
+    link.download = "discstat_ultimate_manager.html";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -945,13 +956,12 @@ export default function App() {
                               <span className="text-sky-700">A:{p.assists}</span>
                               <span className="text-indigo-700">D:{p.ds}</span>
                               <span className="text-rose-700">T:{p.turnovers}</span>
-                              <span className="text-amber-700">TA:{p.throwaways ?? 0}</span>
                               <span className="text-teal-700">DP:{p.drops ?? 0}</span>
                             </div>
                           </div>
 
                           {/* Quick touch point action logger layout */}
-                          <div className="grid grid-cols-6 gap-1.5">
+                          <div className="grid grid-cols-5 gap-1.5">
                             {/* +Goal */}
                             <button
                               type="button"
@@ -994,17 +1004,6 @@ export default function App() {
                             >
                               <span className="text-[8px] font-bold text-rose-100 leading-none">TURN</span>
                               <span className="text-[11px] font-black">+T</span>
-                            </button>
-
-                            {/* +Throwaway (Bad Throw) */}
-                            <button
-                              type="button"
-                              onClick={() => sidelineLogStat(p.id, "throwaways", 1)}
-                              className="bg-amber-500 hover:bg-amber-600 active:scale-90 text-white rounded-xl py-2 font-black text-xs shadow-sm flex flex-col items-center justify-center transition-all"
-                              title="Log Throwaway / Bad Throw"
-                            >
-                              <span className="text-[8px] font-bold text-amber-100 leading-none">THROW</span>
-                              <span className="text-[11px] font-black">+TA</span>
                             </button>
 
                             {/* +Drop */}
@@ -1136,28 +1135,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Throwaways */}
-                    <div className="bg-amber-50/50 border border-amber-100/60 p-3 rounded-xl text-center space-y-1 shadow-sm">
-                      <span className="text-[9px] font-black text-amber-800 tracking-wider uppercase">Throwaways</span>
-                      <div className="text-2xl font-black text-amber-900">{selectedPlayer.throwaways ?? 0}</div>
-                      <div className="flex space-x-1">
-                        <button
-                          type="button"
-                          onClick={() => adjustStat("throwaways", -1)}
-                          className="flex-1 bg-white hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg font-bold py-1 text-xs active:scale-95 transition-transform"
-                        >
-                          -
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => adjustStat("throwaways", 1)}
-                          className="flex-1 bg-amber-600 text-white rounded-lg font-black py-1 text-xs hover:bg-amber-700 active:scale-95 transition-transform"
-                        >
-                          +1
-                        </button>
-                      </div>
-                    </div>
-
                     {/* Drops */}
                     <div className="bg-teal-50/50 border border-teal-100/60 p-3 rounded-xl text-center space-y-1 shadow-sm">
                       <span className="text-[9px] font-black text-teal-800 tracking-wider uppercase">Drops</span>
@@ -1195,7 +1172,6 @@ export default function App() {
                     <span>A:Assists</span>
                     <span>D:Ds</span>
                     <span>T:Turnovers</span>
-                    <span>TA:Throwaways</span>
                     <span>DP:Drops</span>
                   </div>
                 </div>
@@ -1209,23 +1185,22 @@ export default function App() {
                         <th className="py-2 text-center w-8 text-[11px]">A</th>
                         <th className="py-2 text-center w-8 text-[11px]">D</th>
                         <th className="py-2 text-center w-8 text-[11px]">T</th>
-                        <th className="py-2 text-center w-8 text-[11px]">TA</th>
                         <th className="py-2 text-center w-8 text-[11px]">DP</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50 text-slate-600 font-semibold">
                       {players.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-6 text-center text-slate-400 italic text-[11px]">
+                          <td colSpan={6} className="py-6 text-center text-slate-400 italic text-[11px]">
                             No player stats logged yet.
                           </td>
                         </tr>
                       ) : (
                         [...players]
                           .sort((a, b) => {
-                            // Sort by overall positive contribution: goals + assists + ds - (turnovers + throwaways + drops)
-                            const contributionA = a.goals + a.assists + a.ds - (a.turnovers + (a.throwaways ?? 0) + (a.drops ?? 0));
-                            const contributionB = b.goals + b.assists + b.ds - (b.turnovers + (b.throwaways ?? 0) + (b.drops ?? 0));
+                            // Sort by overall positive contribution: goals + assists + ds - (turnovers + drops)
+                            const contributionA = a.goals + a.assists + a.ds - (a.turnovers + (a.drops ?? 0));
+                            const contributionB = b.goals + b.assists + b.ds - (b.turnovers + (b.drops ?? 0));
                             return contributionB - contributionA;
                           })
                           .map(p => (
@@ -1235,7 +1210,6 @@ export default function App() {
                               <td className="py-2.5 text-center text-sky-600 font-bold text-[11px]">{p.assists}</td>
                               <td className="py-2.5 text-center text-indigo-600 font-bold text-[11px]">{p.ds}</td>
                               <td className="py-2.5 text-center text-rose-500 font-bold text-[11px]">{p.turnovers}</td>
-                              <td className="py-2.5 text-center text-amber-600 font-bold text-[11px]">{p.throwaways ?? 0}</td>
                               <td className="py-2.5 text-center text-teal-600 font-bold text-[11px]">{p.drops ?? 0}</td>
                             </tr>
                           ))
