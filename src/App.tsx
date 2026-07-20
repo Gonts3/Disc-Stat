@@ -16,6 +16,8 @@ import {
   Smartphone,
   Award,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Info,
   RotateCcw,
   Camera,
@@ -28,7 +30,7 @@ import { DEFAULT_PLAYERS, exportToCSV, generateSingleFileHTML } from "./utils";
 export default function App() {
   // --- Persistent States ---
   const [players, setPlayers] = useState<Player[]>(() => {
-    const saved = localStorage.getItem("discforce_players");
+    const saved = localStorage.getItem("discstat_players") || localStorage.getItem("discforce_players");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -47,36 +49,37 @@ export default function App() {
   });
 
   const [attendance, setAttendance] = useState<AttendanceRecord[]>(() => {
-    const saved = localStorage.getItem("discforce_attendance");
+    const saved = localStorage.getItem("discstat_attendance") || localStorage.getItem("discforce_attendance");
     return saved ? JSON.parse(saved) : [];
   });
 
   const [practiceLogs, setPracticeLogs] = useState<PracticeLog[]>(() => {
-    const saved = localStorage.getItem("discforce_practice_logs");
+    const saved = localStorage.getItem("discstat_practice_logs") || localStorage.getItem("discforce_practice_logs");
     return saved ? JSON.parse(saved) : [];
   });
 
   const [matches, setMatches] = useState<ScrimmageMatch[]>(() => {
-    const saved = localStorage.getItem("discforce_matches");
+    const saved = localStorage.getItem("discstat_matches") || localStorage.getItem("discforce_matches");
     return saved ? JSON.parse(saved) : [];
   });
 
   // --- UI States ---
-  const [currentTab, setCurrentTab] = useState<"roster" | "practice" | "scrimmage" | "export">("roster");
+  const [currentTab, setCurrentTab] = useState<"attendance" | "scrimmage" | "export">("attendance");
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>("");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [lastAction, setLastAction] = useState<{ playerId: string; field: keyof Omit<Player, "id" | "name">; prevValue: number } | null>(null);
-  const [filterPresentOnly, setFilterPresentOnly] = useState<boolean>(true);
+  const [filterPresentOnly, setFilterPresentOnly] = useState<boolean>(false);
 
   // --- Form States ---
   const [newPlayerName, setNewPlayerName] = useState("");
   
-  const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().split("T")[0]);
-  const [tempAttendance, setTempAttendance] = useState<Record<string, boolean>>({});
-
   const [practiceDate, setPracticeDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [practiceFocus, setPracticeFocus] = useState("");
   const [practiceNotes, setPracticeNotes] = useState("");
+  const [sessionAttendees, setSessionAttendees] = useState<string[]>([]);
+  const [attendeeInput, setAttendeeInput] = useState("");
+  const [deletingLogId, setDeletingLogId] = useState<string | null>(null);
+  const [expandedLogIds, setExpandedLogIds] = useState<string[]>([]);
 
   const [matchDate, setMatchDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [matchOpponent, setMatchOpponent] = useState("Light vs Dark");
@@ -91,34 +94,23 @@ export default function App() {
 
   // --- Synchronize with localStorage ---
   useEffect(() => {
-    localStorage.setItem("discforce_players", JSON.stringify(players));
+    localStorage.setItem("discstat_players", JSON.stringify(players));
     if (players.length > 0 && !selectedPlayerId) {
       setSelectedPlayerId(players[0].id);
     }
   }, [players]);
 
   useEffect(() => {
-    localStorage.setItem("discforce_attendance", JSON.stringify(attendance));
+    localStorage.setItem("discstat_attendance", JSON.stringify(attendance));
   }, [attendance]);
 
   useEffect(() => {
-    localStorage.setItem("discforce_practice_logs", JSON.stringify(practiceLogs));
+    localStorage.setItem("discstat_practice_logs", JSON.stringify(practiceLogs));
   }, [practiceLogs]);
 
   useEffect(() => {
-    localStorage.setItem("discforce_matches", JSON.stringify(matches));
+    localStorage.setItem("discstat_matches", JSON.stringify(matches));
   }, [matches]);
-
-  // --- Load Attendance for selected date ---
-  useEffect(() => {
-    const record = attendance.find(r => r.date === attendanceDate);
-    const initialMap: Record<string, boolean> = {};
-    players.forEach(p => {
-      // Default to present if there is no attendance log for this date yet
-      initialMap[p.id] = record ? record.presentIds.includes(p.id) : true;
-    });
-    setTempAttendance(initialMap);
-  }, [attendanceDate, players, attendance]);
 
   // --- Helper to trigger a toast notification ---
   const triggerToast = (msg: string) => {
@@ -157,28 +149,19 @@ export default function App() {
     }
   };
 
-  const handleSaveAttendance = () => {
-    const presentIds = Object.entries(tempAttendance)
-      .filter(([_, isPresent]) => isPresent)
-      .map(([id]) => id);
-
-    // Filter out previous attendance record of the same date
-    const updatedAttendance = attendance.filter(r => r.date !== attendanceDate);
-    const newRecord: AttendanceRecord = {
-      id: Math.random().toString(36).substring(2, 9),
-      date: attendanceDate,
-      presentIds
-    };
-
-    setAttendance([...updatedAttendance, newRecord]);
-    triggerToast(`Attendance saved for ${attendanceDate}!`);
+  const handleAddAttendee = () => {
+    const name = attendeeInput.trim();
+    if (!name) return;
+    if (sessionAttendees.includes(name)) {
+      triggerToast(`${name} is already added!`);
+      return;
+    }
+    setSessionAttendees([...sessionAttendees, name]);
+    setAttendeeInput("");
   };
 
-  const toggleAttendancePlayer = (playerId: string) => {
-    setTempAttendance(prev => ({
-      ...prev,
-      [playerId]: !prev[playerId]
-    }));
+  const handleRemoveAttendee = (name: string) => {
+    setSessionAttendees(sessionAttendees.filter(n => n !== name));
   };
 
   const handleSavePracticeLog = (e: React.FormEvent) => {
@@ -186,27 +169,35 @@ export default function App() {
     const focus = practiceFocus.trim();
     const notes = practiceNotes.trim();
     if (!focus || !notes) return;
+    if (sessionAttendees.length === 0) {
+      triggerToast("Please add at least one attendee to save log!");
+      return;
+    }
+
+    // Save as a neat comma-separated string
+    const att = sessionAttendees.join(", ");
 
     const newLog: PracticeLog = {
       id: Math.random().toString(36).substring(2, 9),
       date: practiceDate,
       focus,
       notes,
+      attendance: att,
       photo: uploadedPhoto || undefined
     };
 
     setPracticeLogs([newLog, ...practiceLogs]);
     setPracticeFocus("");
     setPracticeNotes("");
+    setSessionAttendees([]);
+    setAttendeeInput("");
     setUploadedPhoto(null);
-    triggerToast("Practice log saved!");
+    triggerToast("Practice log and attendance saved!");
   };
 
   const handleDeletePracticeLog = (id: string) => {
-    if (confirm("Delete this practice log record?")) {
-      setPracticeLogs(practiceLogs.filter(l => l.id !== id));
-      triggerToast("Deleted log entry");
-    }
+    setPracticeLogs(practiceLogs.filter(l => l.id !== id));
+    triggerToast("Deleted log entry");
   };
 
   const handleSaveMatch = (e: React.FormEvent) => {
@@ -339,7 +330,7 @@ export default function App() {
             <circle cx="12" cy="12" r="10" />
             <ellipse cx="12" cy="12" rx="10" ry="3.5" transform="rotate(-30 12 12)" />
           </svg>
-          <span className="text-xl font-black tracking-widest text-sky-400">DISCFORCE</span>
+          <span className="text-xl font-black tracking-widest text-sky-400">DISCSTAT</span>
         </div>
         <div className="flex items-center space-x-1 bg-slate-800/80 px-2.5 py-1 rounded-full border border-slate-700">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -351,157 +342,10 @@ export default function App() {
       <main className="flex-grow w-full max-w-md mx-auto p-4 md:p-6 overflow-hidden">
         <AnimatePresence mode="wait">
           
-          {/* TAB 1: ROSTER & ATTENDANCE */}
-          {currentTab === "roster" && (
+          {/* TAB 1: ATTENDANCE & PRACTICE LOGS */}
+          {currentTab === "attendance" && (
             <motion.div
-              key="roster"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.15 }}
-              className="space-y-5"
-            >
-              <div className="flex justify-between items-center">
-                <div>
-                  <h2 className="text-2xl font-black tracking-tight text-slate-900">Attendance</h2>
-                  <p className="text-xs text-slate-500 font-medium">Track who turned up to throw</p>
-                </div>
-                <span className="bg-sky-100 text-sky-800 text-xs px-3 py-1 rounded-full font-extrabold shadow-sm">
-                  {players.length} Players
-                </span>
-              </div>
-
-              {/* Add Player Input Form */}
-              <form onSubmit={handleAddPlayer} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex space-x-2">
-                <input
-                  type="text"
-                  placeholder="Add player name..."
-                  value={newPlayerName}
-                  onChange={(e) => setNewPlayerName(e.target.value)}
-                  className="flex-grow px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm font-medium"
-                />
-                <button
-                  type="submit"
-                  className="bg-sky-600 hover:bg-sky-700 active:scale-95 text-white px-4 py-2.5 rounded-xl font-black text-sm transition-all flex items-center space-x-1 shadow-md shadow-sky-500/10"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add</span>
-                </button>
-              </form>
-
-              {/* Attendance Tracker Card */}
-              <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <div className="flex items-center space-x-2">
-                    <Calendar className="w-4 h-4 text-sky-500" />
-                    <span className="text-sm font-bold text-slate-700">Practice Date</span>
-                  </div>
-                  <input
-                    type="date"
-                    value={attendanceDate}
-                    onChange={(e) => setAttendanceDate(e.target.value)}
-                    className="border border-slate-200 rounded-xl px-2 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500 bg-slate-50"
-                  />
-                </div>
-
-                {/* Checklist of Players */}
-                <div className="divide-y divide-slate-100 max-h-[300px] overflow-y-auto pr-1">
-                  {players.length === 0 ? (
-                    <div className="text-center py-10 text-slate-400 text-sm">
-                      No players in roster yet. Please add a player using the input above!
-                    </div>
-                  ) : (
-                    players.map(player => {
-                      const isPresent = !!tempAttendance[player.id];
-                      return (
-                        <div key={player.id} className="flex items-center justify-between py-3">
-                          <span className="font-bold text-slate-800 text-sm truncate max-w-[180px]">
-                            {player.name}
-                          </span>
-
-                          <div className="flex items-center space-x-4">
-                            {/* Thumb-Optimized Toggle Switch */}
-                            <button
-                              type="button"
-                              onClick={() => toggleAttendancePlayer(player.id)}
-                              className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors focus:outline-none ${
-                                isPresent ? "bg-sky-600" : "bg-slate-200"
-                              }`}
-                            >
-                              <span
-                                className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
-                                  isPresent ? "translate-x-8" : "translate-x-1"
-                                }`}
-                              />
-                            </button>
-                            <span className={`text-xs font-black w-14 text-center ${isPresent ? "text-sky-600" : "text-slate-400"}`}>
-                              {isPresent ? "Present" : "Absent"}
-                            </span>
-
-                            {/* Detach option */}
-                            <button
-                              type="button"
-                              onClick={() => handleRemovePlayer(player.id, player.name)}
-                              className="text-slate-300 hover:text-rose-500 p-1 active:scale-90 transition-transform"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-
-                {/* Save Button */}
-                {players.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleSaveAttendance}
-                    className="w-full bg-slate-900 hover:bg-slate-800 active:scale-98 text-white py-3.5 rounded-2xl font-extrabold text-sm transition-all shadow-md flex justify-center items-center space-x-2"
-                  >
-                    <Check className="w-4 h-4 text-sky-400" />
-                    <span>Save Today's Attendance</span>
-                  </button>
-                )}
-              </div>
-
-              {/* Attendance Records List */}
-              <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-3">
-                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">Attendance History</h3>
-                {attendance.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic">No practice logs saved yet.</p>
-                ) : (
-                  <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
-                    {[...attendance]
-                      .sort((a, b) => b.date.localeCompare(a.date))
-                      .map(record => {
-                        const totalPlayers = players.length;
-                        // Count present players that are still in our active roster
-                        const presentCount = record.presentIds.filter(id => players.some(p => p.id === id)).length;
-
-                        return (
-                          <div key={record.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
-                            <div className="flex items-center space-x-2">
-                              <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                              <span className="text-xs font-bold text-slate-700">{record.date}</span>
-                            </div>
-                            <span className="bg-sky-100 text-sky-800 text-[10px] px-2 py-1 rounded font-extrabold">
-                              {presentCount}/{totalPlayers} Present
-                            </span>
-                          </div>
-                        );
-                      })}
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-
-          {/* TAB 2: PRACTICE LOG */}
-          {currentTab === "practice" && (
-            <motion.div
-              key="practice"
+              key="attendance"
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -15 }}
@@ -509,11 +353,11 @@ export default function App() {
               className="space-y-5"
             >
               <div>
-                <h2 className="text-2xl font-black tracking-tight text-slate-900">Practice Log</h2>
-                <p className="text-xs text-slate-500 font-medium">Record drills run, focus areas, and coaching points</p>
+                <h2 className="text-2xl font-black tracking-tight text-slate-900">Attendance & Practice</h2>
+                <p className="text-xs text-slate-500 font-semibold">Record drills run, focus areas, and who attended</p>
               </div>
 
-              {/* New Log Entry Form */}
+              {/* Combined Log Entry Form */}
               <form onSubmit={handleSavePracticeLog} className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
                 <div className="grid grid-cols-3 gap-3 items-center">
                   <label className="text-xs font-black text-slate-500 uppercase">Session Date</label>
@@ -534,20 +378,116 @@ export default function App() {
                     value={practiceFocus}
                     onChange={(e) => setPracticeFocus(e.target.value)}
                     required
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm font-semibold"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm font-semibold text-slate-800"
                   />
                 </div>
 
                 <div className="space-y-1.5">
                   <label className="block text-xs font-black text-slate-500 uppercase">Detailed Notes & Drills</label>
                   <textarea
-                    placeholder="Write session specifics, wind adjustments, and areas needing improvement..."
+                    placeholder="Write session specifics, wind adjustments, and drills run..."
                     value={practiceNotes}
                     onChange={(e) => setPracticeNotes(e.target.value)}
                     required
                     rows={4}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm font-semibold leading-relaxed"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm font-semibold leading-relaxed text-slate-800"
                   />
+                </div>
+
+                {/* Who Attended - Single name input & add */}
+                <div className="space-y-3">
+                  <label className="block text-xs font-black text-slate-500 uppercase">Who Attended? (Attendance)</label>
+                  
+                  {/* Row input */}
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      placeholder="Type name of attendee..."
+                      value={attendeeInput}
+                      onChange={(e) => setAttendeeInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleAddAttendee();
+                        }
+                      }}
+                      className="flex-grow px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm font-semibold text-slate-800"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddAttendee}
+                      className="bg-slate-900 hover:bg-slate-800 active:scale-95 text-white px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center space-x-1 shadow-sm"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add</span>
+                    </button>
+                  </div>
+
+                  {/* Registered Roster Quick Toggles */}
+                  {players.length > 0 && (
+                    <div className="bg-slate-50/50 p-2.5 rounded-2xl border border-slate-100 space-y-1.5">
+                      <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Quick Select from Registered Roster:</span>
+                      <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-0.5">
+                        {players.map(p => {
+                          const isAdded = sessionAttendees.includes(p.name);
+                          return (
+                            <button
+                              type="button"
+                              key={p.id}
+                              onClick={() => {
+                                if (isAdded) {
+                                  setSessionAttendees(sessionAttendees.filter(n => n !== p.name));
+                                } else {
+                                  setSessionAttendees([...sessionAttendees, p.name]);
+                                }
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all flex items-center space-x-1 ${
+                                isAdded
+                                  ? "bg-sky-600 border-sky-600 text-white shadow-sm"
+                                  : "bg-white hover:bg-slate-100 border-slate-200 text-slate-700"
+                              }`}
+                            >
+                              <span>{p.name}</span>
+                              {isAdded && <Check className="w-3 h-3" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Selected Attendees List */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Current Attendance List:</span>
+                      <span className="bg-sky-100 text-sky-800 text-[10px] px-2.5 py-0.5 rounded-full font-black">
+                        {sessionAttendees.length} Attending
+                      </span>
+                    </div>
+                    {sessionAttendees.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic bg-slate-50 p-3 rounded-xl border border-slate-100 border-dashed text-center">
+                        No attendees added yet. Add names above or click from registered roster.
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5 bg-slate-50 p-3 rounded-2xl border border-slate-100 max-h-32 overflow-y-auto">
+                        {sessionAttendees.map((name, index) => (
+                          <span
+                            key={index}
+                            className="inline-flex items-center space-x-1.5 bg-sky-50 text-sky-800 border border-sky-100 px-2.5 py-1 rounded-xl text-xs font-bold shadow-sm"
+                          >
+                            <span>{name}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAttendee(name)}
+                              className="text-sky-600 hover:text-rose-500 font-bold transition-colors focus:outline-none"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* End of Session Photo Upload Option */}
@@ -643,11 +583,11 @@ export default function App() {
                   className="w-full bg-sky-600 hover:bg-sky-700 active:scale-98 text-white py-3.5 rounded-2xl font-black text-sm transition-all shadow-md flex justify-center items-center space-x-2"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Save Practice Log & Photo</span>
+                  <span>Save Practice & Attendance Log</span>
                 </button>
               </form>
 
-              {/* History list */}
+              {/* Session History List */}
               <div className="space-y-3">
                 <h3 className="text-base font-black tracking-tight text-slate-800">Session History</h3>
                 {practiceLogs.length === 0 ? (
@@ -656,52 +596,204 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {practiceLogs.map(log => (
-                      <div key={log.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-2 relative">
-                        <div className="flex justify-between items-center">
-                          <div className="flex items-center space-x-1.5 text-xs text-sky-600 font-bold">
-                            <Calendar className="w-3.5 h-3.5" />
-                            <span>{log.date}</span>
-                          </div>
-                          <button
-                            onClick={() => handleDeletePracticeLog(log.id)}
-                            className="text-slate-300 hover:text-rose-500 transition-colors p-1"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                        <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-1.5">
-                          <FileText className="w-3.5 h-3.5 text-slate-400" />
-                          <span>{log.focus}</span>
-                        </h4>
-                        <p className="text-xs text-slate-500 leading-relaxed whitespace-pre-wrap pl-5 border-l-2 border-slate-100">
-                          {log.notes}
-                        </p>
+                    {practiceLogs.map(log => {
+                      const isExpanded = expandedLogIds.includes(log.id);
+                      return (
+                        <div
+                          key={log.id}
+                          onClick={() => {
+                            if (isExpanded) {
+                              setExpandedLogIds(expandedLogIds.filter(id => id !== log.id));
+                            } else {
+                              setExpandedLogIds([...expandedLogIds, log.id]);
+                            }
+                          }}
+                          className={`bg-white p-4 rounded-2xl shadow-sm border transition-all cursor-pointer select-none relative ${
+                            isExpanded ? "border-sky-500 ring-1 ring-sky-100" : "border-slate-100 hover:border-slate-300"
+                          }`}
+                        >
+                          <div className="flex justify-between items-center">
+                            <div className="flex items-center space-x-1.5 text-xs text-sky-600 font-bold">
+                              <Calendar className="w-3.5 h-3.5" />
+                              <span>{log.date}</span>
+                            </div>
+                            
+                            <div className="flex items-center space-x-2">
+                              {/* Delete confirmation or trash icon */}
+                              <div onClick={(e) => e.stopPropagation()} className="relative z-10 flex items-center">
+                                {deletingLogId === log.id ? (
+                                  <div className="flex items-center space-x-1 bg-rose-50 border border-rose-100 p-1 rounded-xl">
+                                    <span className="text-[9px] font-black text-rose-700 uppercase px-1">Delete?</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        handleDeletePracticeLog(log.id);
+                                        setDeletingLogId(null);
+                                      }}
+                                      className="bg-rose-600 hover:bg-rose-700 text-white font-black text-[9px] px-2 py-1 rounded transition-colors"
+                                    >
+                                      Yes
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setDeletingLogId(null)}
+                                      className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-black text-[9px] px-2 py-1 rounded transition-colors"
+                                    >
+                                      No
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeletingLogId(log.id)}
+                                    className="text-slate-300 hover:text-rose-500 transition-colors p-1"
+                                    title="Delete Session Log"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
 
-                        {/* Tradition photo preview */}
-                        {log.photo && (
-                          <div className="mt-3 pl-5">
-                            <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5 flex items-center space-x-1">
-                              <Camera className="w-3 h-3 text-sky-500" />
-                              <span>Session Tradition Photo</span>
-                            </span>
-                            <div className="relative group max-w-xs cursor-zoom-in" onClick={() => setLightboxPhoto(log.photo || null)}>
-                              <img 
-                                src={log.photo} 
-                                alt="End of Session Tradition" 
-                                className="rounded-xl border border-slate-100 max-h-40 w-full object-cover shadow-sm group-hover:brightness-95 transition-all"
-                                referrerPolicy="no-referrer"
-                              />
-                              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl">
-                                <Eye className="w-5 h-5 text-white drop-shadow" />
+                              {/* Expansion Indicator */}
+                              <div className="text-slate-400">
+                                {isExpanded ? (
+                                  <ChevronUp className="w-4 h-4 text-sky-500" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4 text-slate-400" />
+                                )}
                               </div>
                             </div>
                           </div>
-                        )}
-                      </div>
-                    ))}
+
+                          <div className="flex justify-between items-center mt-1">
+                            <h4 className="font-extrabold text-slate-800 text-sm flex items-center space-x-1.5">
+                              <FileText className="w-3.5 h-3.5 text-slate-400" />
+                              <span>{log.focus}</span>
+                            </h4>
+                            {!isExpanded && log.attendance && (
+                              <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
+                                {log.attendance.split(",").length} Attended
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Expanded Details */}
+                          {isExpanded && (
+                            <div className="space-y-3 mt-3 pt-3 border-t border-slate-100 animate-fadeIn" onClick={(e) => e.stopPropagation()}>
+                              {log.notes && (
+                                <div className="space-y-1">
+                                  <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Session Notes & Drills</span>
+                                  <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap pl-3.5 border-l-2 border-sky-400">
+                                    {log.notes}
+                                  </p>
+                                </div>
+                              )}
+
+                              {log.attendance && (
+                                <div className="space-y-1.5">
+                                  <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center space-x-1">
+                                    <Users className="w-3 h-3 text-sky-500" />
+                                    <span>Who Attended ({log.attendance.split(",").length})</span>
+                                  </span>
+                                  <div className="flex flex-wrap gap-1">
+                                    {log.attendance.split(",").map(name => name.trim()).filter(Boolean).map((name, idx) => (
+                                      <span key={idx} className="bg-slate-50 text-slate-750 border border-slate-200 px-2.5 py-1 rounded-xl text-[10px] font-bold flex items-center shadow-sm">
+                                        <span className="text-sky-500 mr-1">•</span>
+                                        <span>{name}</span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Tradition photo preview */}
+                              {log.photo && (
+                                <div className="space-y-1.5">
+                                  <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center space-x-1">
+                                    <Camera className="w-3 h-3 text-sky-500" />
+                                    <span>Session Tradition Photo</span>
+                                  </span>
+                                  <div 
+                                    className="relative group max-w-xs cursor-zoom-in" 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setLightboxPhoto(log.photo || null);
+                                    }}
+                                  >
+                                    <img 
+                                      src={log.photo} 
+                                      alt="End of Session Tradition" 
+                                      className="rounded-xl border border-slate-100 max-h-40 w-full object-cover shadow-sm group-hover:brightness-95 transition-all"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl">
+                                      <Eye className="w-5 h-5 text-white drop-shadow" />
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
+              </div>
+
+              {/* Team Roster Management Section (Purely for Stats Tracker reference) */}
+              <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
+                <div className="border-b border-slate-100 pb-3 flex justify-between items-center">
+                  <div className="flex items-center space-x-2">
+                    <Users className="w-4 h-4 text-sky-500" />
+                    <span className="text-xs font-black text-slate-700 uppercase tracking-wider">Team Roster (For Scrimmage Stats)</span>
+                  </div>
+                  <span className="bg-sky-50 text-sky-800 text-[10px] px-2.5 py-1 rounded-full font-black border border-sky-100">
+                    {players.length} Registered
+                  </span>
+                </div>
+
+                {/* Add Player Input Form */}
+                <form onSubmit={handleAddPlayer} className="flex space-x-2">
+                  <input
+                    type="text"
+                    placeholder="Register new player..."
+                    value={newPlayerName}
+                    onChange={(e) => setNewPlayerName(e.target.value)}
+                    className="flex-grow px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm font-semibold text-slate-800"
+                  />
+                  <button
+                    type="submit"
+                    className="bg-slate-900 hover:bg-slate-800 active:scale-95 text-white px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center space-x-1 shadow-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Register</span>
+                  </button>
+                </form>
+
+                {/* Roster list purely with remove button */}
+                <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto pr-1">
+                  {players.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic text-center py-4">No roster players registered yet.</p>
+                  ) : (
+                    players.map(player => (
+                      <div key={player.id} className="flex items-center justify-between py-2 text-sm font-semibold text-slate-800">
+                        <span>{player.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPlayers(players.filter(p => p.id !== player.id));
+                            triggerToast(`Removed ${player.name} from registered roster`);
+                          }}
+                          className="text-slate-300 hover:text-rose-500 p-1 active:scale-90 transition-transform"
+                          title="Unregister Player"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </motion.div>
           )}
@@ -830,20 +922,10 @@ export default function App() {
                 </div>
 
                 <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-150">
-                  <span className="text-[11px] font-bold text-slate-500">Only show active present players on {matchDate}</span>
-                  <button
-                    type="button"
-                    onClick={() => setFilterPresentOnly(!filterPresentOnly)}
-                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
-                      filterPresentOnly ? "bg-sky-600" : "bg-slate-300"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                        filterPresentOnly ? "translate-x-4" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
+                  <span className="text-[11px] font-bold text-slate-500">Click actions to log live player stats for scrimmage</span>
+                  <span className="bg-slate-200 text-slate-700 text-[9px] px-2 py-0.5 rounded-md font-black">
+                    {players.length} Players
+                  </span>
                 </div>
 
                 {/* Player list for quick sideline stats logging */}
@@ -851,13 +933,7 @@ export default function App() {
                   {players.length === 0 ? (
                     <p className="text-center text-slate-400 py-6 text-xs italic">No roster players found to log.</p>
                   ) : (
-                    players
-                      .filter(p => {
-                        if (!filterPresentOnly) return true;
-                        const matchDateAttendance = attendance.find(r => r.date === matchDate);
-                        return matchDateAttendance ? matchDateAttendance.presentIds.includes(p.id) : true;
-                      })
-                      .map(p => (
+                    players.map(p => (
                         <div key={p.id} className="flex flex-col py-2.5 space-y-2 border-b border-slate-100 last:border-b-0">
                           {/* Name and high-density stats overview */}
                           <div className="flex justify-between items-center">
@@ -1184,10 +1260,20 @@ export default function App() {
                       const isTie = m.ourScore === m.opponentScore;
 
                       // Background highlights: light background for Light won, dark background for Dark won
-                      const badgeBg = won 
-                        ? "bg-slate-50 border-slate-200 text-slate-800" 
+                      const cardBg = won 
+                        ? "bg-slate-50/90 border-slate-200" 
                         : lost 
-                          ? "bg-slate-950 border-slate-950 text-white" 
+                          ? "bg-slate-900 border-slate-850 text-white" 
+                          : "bg-white border-slate-150";
+
+                      const textMuted = lost ? "text-slate-400" : "text-slate-400";
+                      const textPrimary = lost ? "text-slate-200" : "text-slate-800";
+                      const textScore = lost ? "text-white" : "text-slate-900";
+
+                      const badgeBg = won 
+                        ? "bg-white border-slate-300 text-slate-800" 
+                        : lost 
+                          ? "bg-slate-800 border-slate-700 text-white" 
                           : "bg-slate-100 border-slate-200 text-slate-500";
 
                       // Winner label: says Light Win or Opponent/Dark Win based on top text input
@@ -1199,16 +1285,16 @@ export default function App() {
                           : "Draw 🤝";
 
                       return (
-                        <div key={m.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex justify-between items-center relative">
+                        <div key={m.id} className={`${cardBg} p-4 rounded-2xl shadow-sm border flex justify-between items-center relative transition-all`}>
                           <div className="space-y-1">
-                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">{m.date}</span>
-                            <h4 className="font-extrabold text-slate-800 text-xs">{m.opponent}</h4>
-                            <p className="text-base font-black text-slate-900">
-                              <span className="text-slate-500 font-bold text-xs">Light </span>
+                            <span className={`text-[9px] font-black uppercase tracking-wider ${textMuted}`}>{m.date}</span>
+                            <h4 className={`font-extrabold text-xs ${textPrimary}`}>{m.opponent}</h4>
+                            <p className={`text-base font-black ${textScore}`}>
+                              <span className="text-xs font-bold text-slate-400">Light </span>
                               {m.ourScore} 
                               <span className="text-[10px] font-semibold text-slate-400 mx-1">to</span> 
                               {m.opponentScore}
-                              <span className="text-slate-400 font-bold text-xs"> Dark</span>
+                              <span className="text-xs font-bold text-slate-400"> Dark</span>
                             </p>
                           </div>
 
@@ -1222,7 +1308,9 @@ export default function App() {
                                 <span className="text-[9px] font-black text-rose-700 uppercase px-1">Delete?</span>
                                 <button
                                   type="button"
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
                                     setMatches(matches.filter(item => item.id !== m.id));
                                     setDeletingMatchId(null);
                                     triggerToast("Deleted scrimmage record");
@@ -1233,7 +1321,11 @@ export default function App() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setDeletingMatchId(null)}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setDeletingMatchId(null);
+                                  }}
                                   className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-black text-[9px] px-2 py-1 rounded transition-colors"
                                 >
                                   No
@@ -1241,7 +1333,12 @@ export default function App() {
                               </div>
                             ) : (
                               <button
-                                onClick={() => setDeletingMatchId(m.id)}
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setDeletingMatchId(m.id);
+                                }}
                                 className="text-slate-300 hover:text-rose-500 transition-colors p-1"
                                 title="Delete Match Record"
                               >
@@ -1336,7 +1433,7 @@ export default function App() {
                   <div className="flex items-start space-x-2.5">
                     <span className="bg-sky-500/20 text-sky-400 w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0">4</span>
                     <p className="text-slate-300">
-                      Give it a clean name like <strong className="text-white">"DiscForce"</strong> and press Add. The icon is now ready to use offline!
+                      Give it a clean name like <strong className="text-white">"DiscStat"</strong> and press Add. The icon is now ready to use offline!
                     </p>
                   </div>
                 </div>
@@ -1349,30 +1446,19 @@ export default function App() {
 
       {/* BOTTOM THUMB NAVIGATION RAIL */}
       <nav className="fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 text-slate-400 z-45 shadow-2xl max-w-md mx-auto rounded-t-2xl">
-        <div className="grid grid-cols-4 h-16 text-[10px] font-black">
-          {/* Tab 1: Attendance */}
+        <div className="grid grid-cols-3 h-16 text-[10px] font-black">
+          {/* Tab 1: Attendance & Practice */}
           <button
-            onClick={() => setCurrentTab("roster")}
+            onClick={() => setCurrentTab("attendance")}
             className={`flex flex-col items-center justify-center space-y-1 active:scale-95 transition-transform ${
-              currentTab === "roster" ? "text-sky-400" : "text-slate-400"
+              currentTab === "attendance" ? "text-sky-400" : "text-slate-400"
             }`}
           >
             <Users className="w-5 h-5" />
-            <span>Roster</span>
+            <span>Attendance</span>
           </button>
 
-          {/* Tab 2: Practice Focus */}
-          <button
-            onClick={() => setCurrentTab("practice")}
-            className={`flex flex-col items-center justify-center space-y-1 active:scale-95 transition-transform ${
-              currentTab === "practice" ? "text-sky-400" : "text-slate-400"
-            }`}
-          >
-            <BookOpen className="w-5 h-5" />
-            <span>Practice</span>
-          </button>
-
-          {/* Tab 3: Scrimmage & Stats */}
+          {/* Tab 2: Scrimmage & Stats */}
           <button
             onClick={() => setCurrentTab("scrimmage")}
             className={`flex flex-col items-center justify-center space-y-1 active:scale-95 transition-transform ${
@@ -1383,7 +1469,7 @@ export default function App() {
             <span>Scrimmage & Stats</span>
           </button>
 
-          {/* Tab 4: Export */}
+          {/* Tab 3: Export */}
           <button
             onClick={() => setCurrentTab("export")}
             className={`flex flex-col items-center justify-center space-y-1 active:scale-95 transition-transform ${

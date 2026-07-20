@@ -15,7 +15,7 @@ export const DEFAULT_PLAYERS: Player[] = [
 
 export function exportToCSV(players: Player[], attendance: AttendanceRecord[], logs: PracticeLog[], matches: ScrimmageMatch[]) {
   // 1. Players Stats CSV
-  let csvContent = "data:text/csv;charset=utf-8,";
+  let csvContent = "";
   
   csvContent += "=== PLAYER STATS ===\n";
   csvContent += "Player Name,Goals,Assists,D's (Deflection/Blocks),Turnovers,Throwaways (Bad Throws),Drops\n";
@@ -29,15 +29,22 @@ export function exportToCSV(players: Player[], attendance: AttendanceRecord[], l
   attendance.forEach(att => {
     const presentNames = att.presentIds
       .map(id => players.find(p => p.id === id)?.name || "Unknown")
-      .join("; ");
+      .map(name => `• ${name}`)
+      .join("\n");
     csvContent += `"${att.date}","${presentNames.replace(/"/g, '""')}"\n`;
   });
 
   // 3. Practice Logs CSV
   csvContent += "\n=== PRACTICE LOGS ===\n";
-  csvContent += "Date,Focus Area,Session Notes\n";
+  csvContent += "Date,Focus Area,Who Attended,Session Notes & Drills\n";
   logs.forEach(log => {
-    csvContent += `"${log.date}","${log.focus.replace(/"/g, '""')}","${log.notes.replace(/"/g, '""')}"\n`;
+    const attendees = log.attendance 
+      ? log.attendance.split(",").map(name => `• ${name.trim()}`).join("\n") 
+      : "";
+    const notesFormatted = log.notes
+      ? log.notes.split("\n").map(line => line.trim()).filter(Boolean).map(line => line.startsWith("•") || line.startsWith("-") ? line : `• ${line}`).join("\n")
+      : "";
+    csvContent += `"${log.date}","${log.focus.replace(/"/g, '""')}","${attendees.replace(/"/g, '""')}","${notesFormatted.replace(/"/g, '""')}"\n`;
   });
 
   // 4. Scrimmage Matches CSV
@@ -48,13 +55,15 @@ export function exportToCSV(players: Player[], attendance: AttendanceRecord[], l
     csvContent += `"${m.date}","${m.opponent.replace(/"/g, '""')}",${m.ourScore},${m.opponentScore},${result}\n`;
   });
 
-  const encodedUri = encodeURI(csvContent);
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  link.setAttribute("href", encodedUri);
+  link.setAttribute("href", url);
   link.setAttribute("download", `ultimate_frisbee_stats_${new Date().toISOString().split('T')[0]}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 export function generateSingleFileHTML(players: Player[], attendance: AttendanceRecord[], logs: PracticeLog[], matches: ScrimmageMatch[]): string {
