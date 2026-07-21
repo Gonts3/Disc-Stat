@@ -17,8 +17,16 @@ export interface PracticeLog {
   date: string;
   focus: string;
   notes: string;
-  photo?: string; // Base64 data URL for end of session picture
+  photo?: string; // Base64 data URL for practice picture
   attendance?: string; // Text field of who attended
+}
+
+export interface MatchPlayerStat {
+  playerId: string;
+  playerName: string;
+  goals: number;
+  assists: number;
+  turnovers: number;
 }
 
 export interface ScrimmageMatch {
@@ -27,6 +35,8 @@ export interface ScrimmageMatch {
   opponent: string;
   ourScore: number;
   opponentScore: number;
+  playerStats?: MatchPlayerStat[];
+  mvp?: string;
 }
 
 export interface TeamData {

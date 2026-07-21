@@ -22,7 +22,8 @@ import {
   RotateCcw,
   Camera,
   UploadCloud,
-  Eye
+  Eye,
+  Trophy
 } from "lucide-react";
 import { Player, AttendanceRecord, PracticeLog, ScrimmageMatch } from "./types";
 import { DEFAULT_PLAYERS, exportToCSV, generateSingleFileHTML } from "./utils";
@@ -124,7 +125,7 @@ export default function App() {
   const [expandedLogIds, setExpandedLogIds] = useState<string[]>([]);
 
   const [matchDate, setMatchDate] = useState(() => new Date().toISOString().split("T")[0]);
-  const [matchOpponent, setMatchOpponent] = useState("Light vs Dark");
+  const [matchOpponent, setMatchOpponent] = useState("Lights vs Darks");
   const [lightScore, setLightScore] = useState(0);
   const [darkScore, setDarkScore] = useState(0);
 
@@ -133,6 +134,8 @@ export default function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
   const [deletingMatchId, setDeletingMatchId] = useState<string | null>(null);
+  const [matchMvp, setMatchMvp] = useState("");
+  const [expandedMatchIds, setExpandedMatchIds] = useState<string[]>([]);
 
   // --- Initialize Real-time Firestore Sync Subscriptions ---
   useEffect(() => {
@@ -281,18 +284,29 @@ export default function App() {
 
   const handleSaveMatch = async (e: React.FormEvent) => {
     e.preventDefault();
-    const opponent = matchOpponent.trim() || "Light vs Dark";
+    const opponent = matchOpponent.trim() || "Lights vs Darks";
+
+    const snapshotStats = scrimmagePlayers.map(p => ({
+      playerId: p.id,
+      playerName: p.name,
+      goals: p.goals,
+      assists: p.assists,
+      turnovers: p.turnovers
+    }));
 
     const newMatch: ScrimmageMatch = {
       id: Math.random().toString(36).substring(2, 9),
       date: matchDate,
       opponent,
       ourScore: lightScore,
-      opponentScore: darkScore
+      opponentScore: darkScore,
+      playerStats: snapshotStats,
+      mvp: matchMvp.trim() || undefined
     };
 
     setLightScore(0);
     setDarkScore(0);
+    setMatchMvp("");
 
     try {
       await saveDocument("matches", newMatch.id, newMatch);
@@ -397,6 +411,39 @@ export default function App() {
 
   const selectedPlayer = players.find(p => p.id === selectedPlayerId);
 
+  // Find if there is a practice log for the chosen scrimmage date (matchDate)
+  const scrimmagePracticeLog = practiceLogs.find(log => log.date === matchDate);
+  
+  // Parse present players names from the comma-separated attendance list
+  const scrimmagePresentNames = scrimmagePracticeLog?.attendance
+    ? scrimmagePracticeLog.attendance.split(",").map(name => name.trim().toLowerCase())
+    : [];
+
+  // Filter roster players to those present if a practice log is registered for that date, otherwise empty list
+  const scrimmagePlayers = scrimmagePracticeLog 
+    ? players.filter(p => scrimmagePresentNames.includes(p.name.trim().toLowerCase()))
+    : [];
+
+  // Align selected player in Corrector with the scrimmage list to prevent out-of-bounds selections
+  useEffect(() => {
+    const activeLog = practiceLogs.find(log => log.date === matchDate);
+    const presentNames = activeLog?.attendance
+      ? activeLog.attendance.split(",").map(name => name.trim().toLowerCase())
+      : [];
+    const filtered = activeLog
+      ? players.filter(p => presentNames.includes(p.name.trim().toLowerCase()))
+      : [];
+
+    if (filtered.length > 0) {
+      const isStillInList = filtered.some(p => p.id === selectedPlayerId);
+      if (!isStillInList) {
+        setSelectedPlayerId(filtered[0].id);
+      }
+    } else if (selectedPlayerId !== "") {
+      setSelectedPlayerId("");
+    }
+  }, [matchDate, practiceLogs, players]);
+
   // Sorting Leaderboard by Overall Contributions: Goals + Assists - Turnovers
   const leaderboardPlayers = [...players].sort((a, b) => {
     const scoreA = a.goals + a.assists - a.turnovers;
@@ -425,12 +472,7 @@ export default function App() {
       {/* TOP HEADER BAR */}
       <header className="bg-slate-900 text-white py-4 px-6 sticky top-0 z-40 shadow-md flex justify-between items-center max-w-md mx-auto w-full md:rounded-b-2xl border-b border-slate-800">
         <div className="flex items-center space-x-2">
-          {/* Stylized flying disc svg */}
-          <svg className="w-7 h-7 text-sky-400 animate-pulse" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="10" />
-            <ellipse cx="12" cy="12" rx="10" ry="3.5" transform="rotate(-30 12 12)" />
-          </svg>
-          <span className="text-xl font-black tracking-widest text-sky-400">DISCSTAT</span>
+          <span className="text-xl font-black tracking-widest text-white">ULTIMATE STATS</span>
         </div>
         <div className="flex items-center space-x-1.5 bg-slate-800/80 px-2.5 py-1 rounded-full border border-slate-700">
           <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${isOnline ? "bg-emerald-400" : "bg-amber-400"}`} />
@@ -476,7 +518,7 @@ export default function App() {
                   <label className="block text-xs font-black text-slate-500 uppercase">Practice Focus</label>
                   <input
                     type="text"
-                    placeholder="e.g., Vertical stack, cup defense, hucks..."
+                    placeholder=""
                     value={practiceFocus}
                     onChange={(e) => setPracticeFocus(e.target.value)}
                     required
@@ -487,7 +529,7 @@ export default function App() {
                 <div className="space-y-1.5">
                   <label className="block text-xs font-black text-slate-500 uppercase">Detailed Notes & Drills</label>
                   <textarea
-                    placeholder="Write session specifics, wind adjustments, and drills run..."
+                    placeholder="session specifics"
                     value={practiceNotes}
                     onChange={(e) => setPracticeNotes(e.target.value)}
                     required
@@ -592,11 +634,11 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* End of Session Photo Upload Option */}
+                 {/* Practice Picture Upload Option */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-black text-slate-500 uppercase flex items-center space-x-1.5">
                     <Camera className="w-3.5 h-3.5 text-sky-500" />
-                    <span>End of Session Photo (Our Tradition 📸)</span>
+                    <span>Practice Picture 📸</span>
                   </label>
                   
                   {uploadedPhoto ? (
@@ -604,12 +646,12 @@ export default function App() {
                       <div className="flex items-center space-x-3">
                         <img 
                           src={uploadedPhoto} 
-                          alt="End of session preview" 
+                          alt="Practice picture preview" 
                           className="w-14 h-14 object-cover rounded-xl border border-slate-200"
                           referrerPolicy="no-referrer"
                         />
                         <div className="text-left">
-                          <p className="text-xs font-bold text-slate-700">Tradition Photo Loaded!</p>
+                          <p className="text-xs font-bold text-slate-700">Practice Picture Loaded!</p>
                           <p className="text-[10px] text-slate-400 font-medium">Will save with notes below</p>
                         </div>
                       </div>
@@ -617,7 +659,7 @@ export default function App() {
                         type="button"
                         onClick={() => setUploadedPhoto(null)}
                         className="p-1.5 rounded-full bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-500 transition-colors mr-1"
-                        title="Remove photo"
+                        title="Remove picture"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -634,14 +676,14 @@ export default function App() {
                         setIsDragging(false);
                         const file = e.dataTransfer.files?.[0];
                         if (file) {
-                          const reader = new FileReader();
-                          reader.onload = (event) => {
-                            if (typeof event.target?.result === "string") {
-                              setUploadedPhoto(event.target.result);
-                              triggerToast("Tradition photo loaded!");
-                            }
-                          };
-                          reader.readAsDataURL(file);
+                           const reader = new FileReader();
+                           reader.onload = (event) => {
+                             if (typeof event.target?.result === "string") {
+                               setUploadedPhoto(event.target.result);
+                               triggerToast("Practice picture loaded!");
+                             }
+                           };
+                           reader.readAsDataURL(file);
                         }
                       }}
                       className={`border-2 border-dashed rounded-2xl p-5 text-center cursor-pointer transition-all ${
@@ -666,7 +708,7 @@ export default function App() {
                             reader.onload = (event) => {
                               if (typeof event.target?.result === "string") {
                                 setUploadedPhoto(event.target.result);
-                                triggerToast("Tradition photo loaded!");
+                                triggerToast("Practice picture loaded!");
                               }
                             };
                             reader.readAsDataURL(file);
@@ -674,7 +716,7 @@ export default function App() {
                         }}
                       />
                       <UploadCloud className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                      <p className="text-xs font-black text-slate-700">Drag & drop your tradition photo here</p>
+                      <p className="text-xs font-black text-slate-700">Drag & drop your practice picture here</p>
                       <p className="text-[10px] text-slate-400 mt-1">or click to browse from device</p>
                     </div>
                   )}
@@ -808,12 +850,12 @@ export default function App() {
                                 </div>
                               )}
 
-                              {/* Tradition photo preview */}
+                              {/* Practice picture preview */}
                               {log.photo && (
                                 <div className="space-y-1.5">
                                   <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center space-x-1">
                                     <Camera className="w-3 h-3 text-sky-500" />
-                                    <span>Session Tradition Photo</span>
+                                    <span>Practice Picture</span>
                                   </span>
                                   <div 
                                     className="relative group max-w-xs cursor-zoom-in" 
@@ -824,7 +866,7 @@ export default function App() {
                                   >
                                     <img 
                                       src={log.photo} 
-                                      alt="End of Session Tradition" 
+                                      alt="Practice Picture" 
                                       className="rounded-xl border border-slate-100 max-h-40 w-full object-cover shadow-sm group-hover:brightness-95 transition-all"
                                       referrerPolicy="no-referrer"
                                     />
@@ -947,7 +989,7 @@ export default function App() {
                   {/* Light Team (White styling) */}
                   <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl text-center space-y-3 shadow-sm relative overflow-hidden">
                     <div className="absolute top-0 left-0 right-0 h-1 bg-sky-400"></div>
-                    <span className="block text-[10px] font-black text-slate-500 uppercase tracking-wider">Light Team</span>
+                    <span className="block text-[10px] font-black text-slate-500 uppercase tracking-wider">Lights Team</span>
                     <div className="text-5xl font-black text-slate-900 font-mono">{lightScore}</div>
                     <div className="flex items-center justify-center space-x-2">
                       <button
@@ -970,7 +1012,7 @@ export default function App() {
                   {/* Dark Team (Navy/Slate styling) */}
                   <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl text-center space-y-3 shadow-md relative overflow-hidden text-white">
                     <div className="absolute top-0 left-0 right-0 h-1 bg-indigo-500"></div>
-                    <span className="block text-[10px] font-black text-sky-400 uppercase tracking-wider">Dark Team</span>
+                    <span className="block text-[10px] font-black text-sky-400 uppercase tracking-wider">Darks Team</span>
                     <div className="text-5xl font-black text-white font-mono">{darkScore}</div>
                     <div className="flex items-center justify-center space-x-2">
                       <button
@@ -989,6 +1031,18 @@ export default function App() {
                       </button>
                     </div>
                   </div>
+                </div>
+
+                {/* MVP Input Option */}
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider">MVP(s) of the Day (Optional)</label>
+                  <input
+                    type="text"
+                    value={matchMvp}
+                    onChange={(e) => setMatchMvp(e.target.value)}
+                    placeholder="Name of player(s)"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-850 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  />
                 </div>
 
                 <button
@@ -1022,17 +1076,36 @@ export default function App() {
 
                 <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-150">
                   <span className="text-[11px] font-bold text-slate-500">Click actions to log live player stats for scrimmage</span>
-                  <span className="bg-slate-200 text-slate-700 text-[9px] px-2 py-0.5 rounded-md font-black">
-                    {players.length} Players
+                  <span className="bg-slate-200 text-slate-700 text-[9px] px-2 py-1 rounded-md font-black">
+                    {scrimmagePracticeLog ? "LINKED TO ATTENDANCE" : `${scrimmagePlayers.length} PLAYERS`}
                   </span>
                 </div>
 
+                {scrimmagePracticeLog && (
+                  <div className="bg-sky-50 border border-sky-100/70 p-2.5 rounded-xl text-left text-[11px] font-semibold text-sky-800">
+                    Showing only present players from practice attendance on <span className="font-bold">{matchDate}</span> ({scrimmagePlayers.length} present).
+                  </div>
+                )}
+
                 {/* Player list for quick sideline stats logging */}
                 <div className="divide-y divide-slate-100 max-h-[380px] overflow-y-auto pr-1 space-y-2">
-                  {players.length === 0 ? (
-                    <p className="text-center text-slate-400 py-6 text-xs italic">No roster players found to log.</p>
+                  {scrimmagePlayers.length === 0 ? (
+                    <div className="py-6 text-center">
+                      {!scrimmagePracticeLog ? (
+                        <div className="bg-amber-50/80 border border-amber-100 p-4 rounded-2xl text-center space-y-1.5 max-w-sm mx-auto">
+                          <p className="text-xs font-black text-amber-800">No registered attendance data for this day.</p>
+                          <p className="text-[10px] text-amber-600 font-bold leading-relaxed">
+                            Please log a practice session and record attendance for <span className="underline font-black">{matchDate}</span> first in the <b>Attendance</b> tab to link and track live stats!
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-slate-400 text-xs italic">
+                          No roster players were present at practice on this day.
+                        </p>
+                      )}
+                    </div>
                   ) : (
-                    players.map(p => (
+                    scrimmagePlayers.map(p => (
                         <div key={p.id} className="flex flex-col py-2.5 space-y-2 border-b border-slate-100 last:border-b-0">
                           {/* Name and high-density stats overview */}
                           <div className="flex justify-between items-center">
@@ -1099,10 +1172,10 @@ export default function App() {
                     onChange={(e) => setSelectedPlayerId(e.target.value)}
                     className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 text-xs font-bold text-slate-700"
                   >
-                    {players.length === 0 ? (
-                      <option value="">No players in roster</option>
+                    {scrimmagePlayers.length === 0 ? (
+                      <option value="">No players available</option>
                     ) : (
-                      players.map(p => (
+                      scrimmagePlayers.map(p => (
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))
                     )}
@@ -1205,14 +1278,16 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50 text-slate-600 font-semibold">
-                      {players.length === 0 ? (
+                      {scrimmagePlayers.length === 0 ? (
                         <tr>
                           <td colSpan={4} className="py-6 text-center text-slate-400 italic text-[11px]">
-                            No player stats logged yet.
+                            {scrimmagePracticeLog 
+                              ? "No players in attendance were found in your registered roster."
+                              : "No player stats logged yet."}
                           </td>
                         </tr>
                       ) : (
-                        [...players]
+                        [...scrimmagePlayers]
                           .sort((a, b) => {
                             // Sort by overall positive contribution: goals + assists - turnovers
                             const contributionA = a.goals + a.assists - a.turnovers;
@@ -1242,7 +1317,9 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {matches.map(m => {
+                    {[...matches]
+                      .sort((a, b) => b.date.localeCompare(a.date))
+                      .map(m => {
                       const won = m.ourScore > m.opponentScore;
                       const lost = m.ourScore < m.opponentScore;
                       const isTie = m.ourScore === m.opponentScore;
@@ -1264,80 +1341,184 @@ export default function App() {
                           ? "bg-slate-800 border-slate-700 text-white" 
                           : "bg-slate-100 border-slate-200 text-slate-500";
 
-                      // Winner label: says Light Win or Opponent/Dark Win based on top text input
-                      const isDefaultOpp = !m.opponent || m.opponent.trim().toLowerCase() === "light vs dark" || m.opponent.trim().toLowerCase() === "dark";
+                      // Parse out team names dynamically
+                      const isPlural = !m.opponent || m.opponent.trim().toLowerCase().includes("lights") || m.opponent.trim().toLowerCase().includes("darks");
+                      let ourTeamName = isPlural ? "Lights" : "Light";
+                      let oppTeamName = isPlural ? "Darks" : "Dark";
+
+                      const isDefaultOpp = !m.opponent || 
+                                           m.opponent.trim().toLowerCase() === "light vs dark" || 
+                                           m.opponent.trim().toLowerCase() === "lights vs darks" ||
+                                           m.opponent.trim().toLowerCase() === "dark" ||
+                                           m.opponent.trim().toLowerCase() === "darks";
+
+                      if (!isDefaultOpp && m.opponent) {
+                        const lowerOpp = m.opponent.toLowerCase();
+                        if (lowerOpp.includes("vs")) {
+                          const parts = m.opponent.split(/vs/i);
+                          ourTeamName = parts[0].trim();
+                          oppTeamName = parts[1].trim();
+                        } else {
+                          oppTeamName = m.opponent;
+                        }
+                      }
+
+                      // Winner label
                       const badgeLabel = won 
-                        ? "Light Win 🏆" 
+                        ? `${ourTeamName} Win 🏆` 
                         : lost 
-                          ? (isDefaultOpp ? "Dark Win 🏆" : `${m.opponent} Win 🏆`) 
+                          ? `${oppTeamName} Win 🏆` 
                           : "Draw 🤝";
 
-                      return (
-                        <div key={m.id} className={`${cardBg} p-4 rounded-2xl shadow-sm border flex justify-between items-center relative transition-all`}>
-                          <div className="space-y-1">
-                            <span className={`text-[9px] font-black uppercase tracking-wider ${textMuted}`}>{m.date}</span>
-                            <h4 className={`font-extrabold text-xs ${textPrimary}`}>{m.opponent}</h4>
-                            <p className={`text-base font-black ${textScore}`}>
-                              <span className="text-xs font-bold text-slate-400">Light </span>
-                              {m.ourScore} 
-                              <span className="text-[10px] font-semibold text-slate-400 mx-1">to</span> 
-                              {m.opponentScore}
-                              <span className="text-xs font-bold text-slate-400"> Dark</span>
-                            </p>
-                          </div>
+                      const isMatchExpanded = expandedMatchIds.includes(m.id);
 
-                          <div className="flex items-center space-x-2">
-                            <span className={`${badgeBg} px-2.5 py-1 rounded-full flex items-center justify-center text-[10px] font-black shadow-sm border`}>
-                              {badgeLabel}
-                            </span>
-                            
-                            {deletingMatchId === m.id ? (
-                              <div className="flex items-center space-x-1 bg-rose-50 border border-rose-100 p-1 rounded-xl">
-                                <span className="text-[9px] font-black text-rose-700 uppercase px-1">Delete?</span>
-                                <button
-                                  type="button"
-                                  onClick={async (e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    try {
-                                      await deleteDocument("matches", m.id);
+                      return (
+                        <div 
+                          key={m.id} 
+                          onClick={() => {
+                            if (isMatchExpanded) {
+                              setExpandedMatchIds(expandedMatchIds.filter(id => id !== m.id));
+                            } else {
+                              setExpandedMatchIds([...expandedMatchIds, m.id]);
+                            }
+                          }}
+                          className={`${cardBg} p-4 rounded-2xl shadow-sm border flex flex-col space-y-3 relative transition-all cursor-pointer select-none ${
+                            isMatchExpanded ? "ring-2 ring-sky-400" : ""
+                          }`}
+                        >
+                          <div className="flex justify-between items-center w-full">
+                            <div className="space-y-1 text-left">
+                              <span className={`text-[9px] font-black uppercase tracking-wider ${textMuted}`}>{m.date}</span>
+                              <h4 className={`font-extrabold text-xs flex items-center space-x-1 ${textPrimary}`}>
+                                <Trophy className="w-3.5 h-3.5 text-amber-500 mr-1" />
+                                <span>{m.opponent}</span>
+                              </h4>
+                              <p className={`text-base font-black ${textScore}`}>
+                                <span className="text-xs font-bold text-slate-400">{ourTeamName} </span>
+                                {m.ourScore} 
+                                <span className="text-sm font-black text-slate-400 mx-2">-</span> 
+                                {m.opponentScore}
+                                <span className="text-xs font-bold text-slate-400"> {oppTeamName}</span>
+                              </p>
+                            </div>
+
+                            <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
+                              <span className={`${badgeBg} px-2.5 py-1 rounded-full flex items-center justify-center text-[10px] font-black shadow-sm border`}>
+                                {badgeLabel}
+                              </span>
+                              
+                              {deletingMatchId === m.id ? (
+                                <div className="flex items-center space-x-1 bg-rose-50 border border-rose-100 p-1 rounded-xl">
+                                  <span className="text-[9px] font-black text-rose-700 uppercase px-1">Delete?</span>
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      try {
+                                        await deleteDocument("matches", m.id);
+                                        setDeletingMatchId(null);
+                                        triggerToast("Deleted scrimmage record");
+                                      } catch (err) {
+                                        triggerToast("Error deleting scrimmage record.");
+                                      }
+                                    }}
+                                    className="bg-rose-600 hover:bg-rose-700 text-white font-black text-[9px] px-2 py-1 rounded transition-colors"
+                                  >
+                                    Yes
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
                                       setDeletingMatchId(null);
-                                      triggerToast("Deleted scrimmage record");
-                                    } catch (err) {
-                                      triggerToast("Error deleting scrimmage record.");
-                                    }
-                                  }}
-                                  className="bg-rose-600 hover:bg-rose-700 text-white font-black text-[9px] px-2 py-1 rounded transition-colors"
-                                >
-                                  Yes
-                                </button>
+                                    }}
+                                    className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-black text-[9px] px-2 py-1 rounded transition-colors"
+                                  >
+                                    No
+                                  </button>
+                                </div>
+                              ) : (
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    setDeletingMatchId(null);
+                                    setDeletingMatchId(m.id);
                                   }}
-                                  className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-black text-[9px] px-2 py-1 rounded transition-colors"
+                                  className="text-slate-300 hover:text-rose-500 transition-colors p-1"
+                                  title="Delete Match Record"
                                 >
-                                  No
+                                  <Trash2 className="w-4 h-4" />
                                 </button>
+                              )}
+
+                              {/* Expansion arrow indicator */}
+                              <div className={lost ? "text-slate-400" : "text-slate-500"}>
+                                {isMatchExpanded ? (
+                                  <ChevronUp className="w-4 h-4 text-sky-400" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4" />
+                                )}
                               </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  setDeletingMatchId(m.id);
-                                }}
-                                className="text-slate-300 hover:text-rose-500 transition-colors p-1"
-                                title="Delete Match Record"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
+                            </div>
                           </div>
+
+                          {/* Expanded Details: MVPs & Player Stats Snapshot */}
+                          {isMatchExpanded && (
+                            <div className={`space-y-3 pt-3 border-t ${lost ? "border-slate-800" : "border-slate-100"} text-left animate-fadeIn`} onClick={(e) => e.stopPropagation()}>
+                              {/* MVPs of the day option */}
+                              {m.mvp && (
+                                <div className={`p-2.5 rounded-xl border flex items-center space-x-2 ${
+                                  lost 
+                                    ? "bg-slate-800 border-slate-700 text-amber-200" 
+                                    : "bg-amber-50/50 border-amber-100 text-amber-900"
+                                }`}>
+                                  <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
+                                  <div className="text-xs font-semibold">
+                                    <span className="font-bold text-[10px] uppercase tracking-wider block opacity-75">Scrimmage MVP(s)</span>
+                                    <span className="font-extrabold">{m.mvp}</span>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Player stats subtable */}
+                              <div className="space-y-1.5">
+                                <span className={`block text-[9px] font-black uppercase tracking-wider ${lost ? "text-slate-400" : "text-slate-400"}`}>
+                                  Player Stats Snapshot
+                                </span>
+                                {!m.playerStats || m.playerStats.length === 0 ? (
+                                  <p className={`text-[11px] italic font-medium ${lost ? "text-slate-500" : "text-slate-400"}`}>
+                                    No player stats were snapshotted for this match.
+                                  </p>
+                                ) : (
+                                  <div className={`overflow-hidden rounded-xl border ${lost ? "border-slate-800/60 bg-slate-950/20" : "border-slate-100 bg-slate-50/50"}`}>
+                                    <table className="w-full text-left border-collapse">
+                                      <thead>
+                                        <tr className={lost ? "bg-slate-850 text-slate-400 border-b border-slate-800" : "bg-slate-50 text-slate-500 border-b border-slate-150"}>
+                                          <th className="py-1.5 pl-2.5 text-[9px] font-black uppercase">Player</th>
+                                          <th className="py-1.5 text-center text-[9px] font-black uppercase">Goals</th>
+                                          <th className="py-1.5 text-center text-[9px] font-black uppercase">Assists</th>
+                                          <th className="py-1.5 text-center text-[9px] font-black uppercase">Turnovers</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className={`divide-y ${lost ? "divide-slate-800/40" : "divide-slate-100"}`}>
+                                        {m.playerStats.map((stat, idx) => (
+                                          <tr key={idx} className={lost ? "hover:bg-slate-800/40 text-slate-200" : "hover:bg-slate-50/50 text-slate-700"}>
+                                            <td className="py-2 pl-2.5 font-bold text-[11px] truncate max-w-[120px]">{stat.playerName}</td>
+                                            <td className="py-2 text-center text-emerald-500 font-extrabold text-[11px]">{stat.goals}</td>
+                                            <td className="py-2 text-center text-sky-400 font-extrabold text-[11px]">{stat.assists}</td>
+                                            <td className="py-2 text-center text-rose-500 font-extrabold text-[11px]">{stat.turnovers}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -1441,7 +1622,7 @@ export default function App() {
         </div>
       </nav>
 
-      {/* LIGHTBOX MODAL FOR TRADITION PHOTOS */}
+      {/* LIGHTBOX MODAL FOR PRACTICE PICTURES */}
       <AnimatePresence>
         {lightboxPhoto && (
           <motion.div
@@ -1460,14 +1641,14 @@ export default function App() {
             >
               <img 
                 src={lightboxPhoto} 
-                alt="Enlarged Tradition Photo" 
+                alt="Enlarged Practice Picture" 
                 className="w-full h-auto max-h-[70vh] object-contain rounded-2xl border border-slate-800 bg-slate-950"
                 referrerPolicy="no-referrer"
               />
               <div className="flex justify-between items-center mt-3 px-2">
                 <span className="text-[11px] font-bold text-slate-400 flex items-center space-x-1">
                   <Camera className="w-3.5 h-3.5 text-sky-500" />
-                  <span>Session Tradition Photo</span>
+                  <span>Practice Picture</span>
                 </span>
                 <button
                   type="button"

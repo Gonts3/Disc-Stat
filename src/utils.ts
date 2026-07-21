@@ -232,14 +232,14 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
           </div>
         </div>
 
-        <!-- End of Session Photo Option -->
+        <!-- Practice Picture Option -->
         <div class="space-y-1.5">
-          <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider">End of Session Photo (📸 Tradition)</label>
+          <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider">Practice Picture (📸 Session Photo)</label>
           <div id="offline-photo-preview-container" class="hidden relative rounded-xl border border-slate-200 overflow-hidden bg-slate-50 p-2.5 flex items-center justify-between">
             <div class="flex items-center space-x-3">
-              <img id="offline-photo-preview-img" src="" alt="Session Tradition preview" class="w-14 h-14 object-cover rounded-lg border border-slate-200">
+              <img id="offline-photo-preview-img" src="" alt="Practice picture preview" class="w-14 h-14 object-cover rounded-lg border border-slate-200">
               <div class="text-left">
-                <p class="text-xs font-bold text-slate-700">Tradition Photo Loaded!</p>
+                <p class="text-xs font-bold text-slate-700">Practice Picture Loaded!</p>
               </div>
             </div>
             <button type="button" onclick="removeOfflinePhoto()" class="p-1 rounded-full bg-slate-100 text-slate-500 hover:bg-rose-100 hover:text-rose-600 transition-colors">
@@ -248,7 +248,7 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
           </div>
           <div id="offline-photo-upload-box" class="border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-slate-100/50" onclick="document.getElementById('offline-photo-upload-input').click()">
             <input id="offline-photo-upload-input" type="file" accept="image/*" class="hidden" onchange="handleOfflinePhotoUpload(event)">
-            <p class="text-xs font-bold text-slate-700">Click to upload tradition photo</p>
+            <p class="text-xs font-bold text-slate-700">Click to upload practice picture</p>
           </div>
         </div>
 
@@ -934,10 +934,10 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
                 <div class="space-y-1.5">
                   <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center space-x-1">
                     <svg class="w-3 h-3 text-sky-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039a48.774 48.774 0 00-5.232 0a2.192 2.192 0 00-1.736 1.039l-.821 1.316z"/><circle cx="12" cy="13" r="3" /></svg>
-                    <span>Session Tradition Photo</span>
+                    <span>Practice Picture</span>
                   </span>
                   <div class="max-w-xs">
-                    <img src="\${log.photo}" alt="Session Tradition" class="rounded-lg border border-slate-100 max-h-40 w-full object-cover shadow-sm">
+                    <img src="\${log.photo}" alt="Practice Picture" class="rounded-lg border border-slate-100 max-h-40 w-full object-cover shadow-sm">
                   </div>
                 </div>
               \` : ''}
