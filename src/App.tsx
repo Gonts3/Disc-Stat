@@ -26,19 +26,43 @@ import {
 } from "lucide-react";
 import { Player, AttendanceRecord, PracticeLog, ScrimmageMatch } from "./types";
 import { DEFAULT_PLAYERS, exportToCSV, generateSingleFileHTML } from "./utils";
+import { subscribeToCollection, saveDocument, deleteDocument } from "./firebase";
+
+// Custom hook to trace device connection status
+function useOnlineStatus() {
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+
+  return isOnline;
+}
 
 export default function App() {
-  // --- Persistent States ---
-  const [players, setPlayers] = useState<Player[]>(() => {
+  const isOnline = useOnlineStatus();
+
+  // Helper getters to retrieve local data backup for seeding Firestore if empty
+  const getLocalPlayers = (): Player[] => {
     const saved = localStorage.getItem("discstat_players") || localStorage.getItem("discforce_players");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          return parsed.map(p => ({
+          return parsed.map((p: any) => ({
             ...p,
-            throwaways: p.throwaways ?? 0,
-            drops: p.drops ?? 0
+            goals: p.goals ?? 0,
+            assists: p.assists ?? 0,
+            turnovers: p.turnovers ?? 0
           }));
         }
       } catch (e) {
@@ -46,22 +70,40 @@ export default function App() {
       }
     }
     return DEFAULT_PLAYERS;
-  });
+  };
 
-  const [attendance, setAttendance] = useState<AttendanceRecord[]>(() => {
+  const getLocalAttendance = (): AttendanceRecord[] => {
     const saved = localStorage.getItem("discstat_attendance") || localStorage.getItem("discforce_attendance");
-    return saved ? JSON.parse(saved) : [];
-  });
+    try {
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  };
 
-  const [practiceLogs, setPracticeLogs] = useState<PracticeLog[]>(() => {
+  const getLocalPracticeLogs = (): PracticeLog[] => {
     const saved = localStorage.getItem("discstat_practice_logs") || localStorage.getItem("discforce_practice_logs");
-    return saved ? JSON.parse(saved) : [];
-  });
+    try {
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  };
 
-  const [matches, setMatches] = useState<ScrimmageMatch[]>(() => {
+  const getLocalMatches = (): ScrimmageMatch[] => {
     const saved = localStorage.getItem("discstat_matches") || localStorage.getItem("discforce_matches");
-    return saved ? JSON.parse(saved) : [];
-  });
+    try {
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  };
+
+  // --- Real-time Firestore Synced States ---
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [practiceLogs, setPracticeLogs] = useState<PracticeLog[]>([]);
+  const [matches, setMatches] = useState<ScrimmageMatch[]>([]);
 
   // --- UI States ---
   const [currentTab, setCurrentTab] = useState<"attendance" | "scrimmage" | "export">("attendance");
@@ -92,24 +134,47 @@ export default function App() {
   const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
   const [deletingMatchId, setDeletingMatchId] = useState<string | null>(null);
 
-  // --- Synchronize with localStorage ---
+  // --- Initialize Real-time Firestore Sync Subscriptions ---
   useEffect(() => {
-    localStorage.setItem("discstat_players", JSON.stringify(players));
-    if (players.length > 0 && !selectedPlayerId) {
-      setSelectedPlayerId(players[0].id);
+    const unsubPlayers = subscribeToCollection<Player>("players", setPlayers, getLocalPlayers);
+    const unsubAttendance = subscribeToCollection<AttendanceRecord>("attendance", setAttendance, getLocalAttendance);
+    const unsubPracticeLogs = subscribeToCollection<PracticeLog>("practiceLogs", setPracticeLogs, getLocalPracticeLogs);
+    const unsubMatches = subscribeToCollection<ScrimmageMatch>("matches", setMatches, getLocalMatches);
+
+    return () => {
+      unsubPlayers();
+      unsubAttendance();
+      unsubPracticeLogs();
+      unsubMatches();
+    };
+  }, []);
+
+  // --- Synchronize with localStorage for local backup redundancy ---
+  useEffect(() => {
+    if (players.length > 0) {
+      localStorage.setItem("discstat_players", JSON.stringify(players));
+      if (!selectedPlayerId) {
+        setSelectedPlayerId(players[0].id);
+      }
     }
-  }, [players]);
+  }, [players, selectedPlayerId]);
 
   useEffect(() => {
-    localStorage.setItem("discstat_attendance", JSON.stringify(attendance));
+    if (attendance.length > 0) {
+      localStorage.setItem("discstat_attendance", JSON.stringify(attendance));
+    }
   }, [attendance]);
 
   useEffect(() => {
-    localStorage.setItem("discstat_practice_logs", JSON.stringify(practiceLogs));
+    if (practiceLogs.length > 0) {
+      localStorage.setItem("discstat_practice_logs", JSON.stringify(practiceLogs));
+    }
   }, [practiceLogs]);
 
   useEffect(() => {
-    localStorage.setItem("discstat_matches", JSON.stringify(matches));
+    if (matches.length > 0) {
+      localStorage.setItem("discstat_matches", JSON.stringify(matches));
+    }
   }, [matches]);
 
   // --- Helper to trigger a toast notification ---
@@ -121,7 +186,7 @@ export default function App() {
   };
 
   // --- Actions ---
-  const handleAddPlayer = (e: React.FormEvent) => {
+  const handleAddPlayer = async (e: React.FormEvent) => {
     e.preventDefault();
     const name = newPlayerName.trim();
     if (!name) return;
@@ -131,21 +196,26 @@ export default function App() {
       name,
       goals: 0,
       assists: 0,
-      ds: 0,
-      turnovers: 0,
-      throwaways: 0,
-      drops: 0
+      turnovers: 0
     };
 
-    setPlayers([...players, newPlayer]);
     setNewPlayerName("");
-    triggerToast(`Added ${name} to Roster!`);
+    try {
+      await saveDocument("players", newPlayer.id, newPlayer);
+      triggerToast(`Added ${name} to Roster!`);
+    } catch (err) {
+      triggerToast("Error registering player.");
+    }
   };
 
-  const handleRemovePlayer = (id: string, name: string) => {
+  const handleRemovePlayer = async (id: string, name: string) => {
     if (confirm(`Remove ${name} from the roster? Historical stats remain, but they won't appear on active tracking sheets.`)) {
-      setPlayers(players.filter(p => p.id !== id));
-      triggerToast(`Removed ${name}`);
+      try {
+        await deleteDocument("players", id);
+        triggerToast(`Removed ${name}`);
+      } catch (err) {
+        triggerToast("Error removing player.");
+      }
     }
   };
 
@@ -164,7 +234,7 @@ export default function App() {
     setSessionAttendees(sessionAttendees.filter(n => n !== name));
   };
 
-  const handleSavePracticeLog = (e: React.FormEvent) => {
+  const handleSavePracticeLog = async (e: React.FormEvent) => {
     e.preventDefault();
     const focus = practiceFocus.trim();
     const notes = practiceNotes.trim();
@@ -186,21 +256,30 @@ export default function App() {
       photo: uploadedPhoto || undefined
     };
 
-    setPracticeLogs([newLog, ...practiceLogs]);
     setPracticeFocus("");
     setPracticeNotes("");
     setSessionAttendees([]);
     setAttendeeInput("");
     setUploadedPhoto(null);
-    triggerToast("Practice log and attendance saved!");
+
+    try {
+      await saveDocument("practiceLogs", newLog.id, newLog);
+      triggerToast("Practice log and attendance saved!");
+    } catch (err) {
+      triggerToast("Error saving practice log.");
+    }
   };
 
-  const handleDeletePracticeLog = (id: string) => {
-    setPracticeLogs(practiceLogs.filter(l => l.id !== id));
-    triggerToast("Deleted log entry");
+  const handleDeletePracticeLog = async (id: string) => {
+    try {
+      await deleteDocument("practiceLogs", id);
+      triggerToast("Deleted log entry");
+    } catch (err) {
+      triggerToast("Error deleting log entry.");
+    }
   };
 
-  const handleSaveMatch = (e: React.FormEvent) => {
+  const handleSaveMatch = async (e: React.FormEvent) => {
     e.preventDefault();
     const opponent = matchOpponent.trim() || "Light vs Dark";
 
@@ -212,70 +291,80 @@ export default function App() {
       opponentScore: darkScore
     };
 
-    setMatches([newMatch, ...matches]);
     setLightScore(0);
     setDarkScore(0);
-    triggerToast("Scrimmage match saved!");
-  };
 
-  const handleDeleteMatch = (id: string) => {
-    if (confirm("Delete this match record?")) {
-      setMatches(matches.filter(m => m.id !== id));
-      triggerToast("Deleted match record");
+    try {
+      await saveDocument("matches", newMatch.id, newMatch);
+      triggerToast("Scrimmage match saved!");
+    } catch (err) {
+      triggerToast("Error saving scrimmage match.");
     }
   };
 
-  const adjustStat = (field: keyof Omit<Player, "id" | "name">, amount: number) => {
+  const handleDeleteMatch = async (id: string) => {
+    if (confirm("Delete this match record?")) {
+      try {
+        await deleteDocument("matches", id);
+        triggerToast("Deleted match record");
+      } catch (err) {
+        triggerToast("Error deleting match.");
+      }
+    }
+  };
+
+  const adjustStat = async (field: keyof Omit<Player, "id" | "name">, amount: number) => {
     if (!selectedPlayerId) {
       triggerToast("Please select a player first!");
       return;
     }
 
-    setPlayers(prevPlayers => prevPlayers.map(p => {
-      if (p.id === selectedPlayerId) {
-        const newVal = Math.max(0, p[field] + amount);
-        setLastAction({ playerId: p.id, field, prevValue: p[field] });
-        return { ...p, [field]: newVal };
-      }
-      return p;
-    }));
-  };
+    const p = players.find(item => item.id === selectedPlayerId);
+    if (!p) return;
 
-  const sidelineLogStat = (playerId: string, field: keyof Omit<Player, "id" | "name">, amount: number) => {
-    setPlayers(prevPlayers => prevPlayers.map(p => {
-      if (p.id === playerId) {
-        const newVal = Math.max(0, p[field] + amount);
-        setLastAction({ playerId, field, prevValue: p[field] });
-        return { ...p, [field]: newVal };
-      }
-      return p;
-    }));
+    const newVal = Math.max(0, p[field] + amount);
+    setLastAction({ playerId: p.id, field, prevValue: p[field] });
 
-    const p = players.find(player => player.id === playerId);
-    if (p) {
-      const fieldLabels: Record<keyof Omit<Player, "id" | "name">, string> = {
-        goals: "Goal 🥏",
-        assists: "Assist 🤝",
-        ds: "D (Block) 🚫",
-        turnovers: "Turnover ⚠️",
-        throwaways: "Throwaway ☄️",
-        drops: "Drop 🪂"
-      };
-      triggerToast(`${p.name}: +1 ${fieldLabels[field]}`);
+    try {
+      await saveDocument("players", p.id, { ...p, [field]: newVal });
+    } catch (err) {
+      triggerToast("Error adjusting stats.");
     }
   };
 
-  const undoLastAction = () => {
+  const sidelineLogStat = async (playerId: string, field: keyof Omit<Player, "id" | "name">, amount: number) => {
+    const p = players.find(player => player.id === playerId);
+    if (!p) return;
+
+    const newVal = Math.max(0, p[field] + amount);
+    setLastAction({ playerId, field, prevValue: p[field] });
+
+    const fieldLabels: Record<keyof Omit<Player, "id" | "name">, string> = {
+      goals: "Goal 🥏",
+      assists: "Assist 🤝",
+      turnovers: "Turnover ⚠️"
+    };
+    triggerToast(`${p.name}: +1 ${fieldLabels[field]}`);
+
+    try {
+      await saveDocument("players", playerId, { ...p, [field]: newVal });
+    } catch (err) {
+      triggerToast("Error updating stats.");
+    }
+  };
+
+  const undoLastAction = async () => {
     if (!lastAction) return;
-    setPlayers(prevPlayers => prevPlayers.map(p => {
-      if (p.id === lastAction.playerId) {
-        return { ...p, [lastAction.field]: lastAction.prevValue };
-      }
-      return p;
-    }));
-    const player = players.find(p => p.id === lastAction.playerId);
-    triggerToast(`Undid stat change for ${player ? player.name : "player"}`);
-    setLastAction(null);
+    const p = players.find(player => player.id === lastAction.playerId);
+    if (!p) return;
+
+    try {
+      await saveDocument("players", p.id, { ...p, [lastAction.field]: lastAction.prevValue });
+      triggerToast(`Undid stat change for ${p.name}`);
+      setLastAction(null);
+    } catch (err) {
+      triggerToast("Error undoing action.");
+    }
   };
 
   const handleDownloadCSV = () => {
@@ -308,10 +397,10 @@ export default function App() {
 
   const selectedPlayer = players.find(p => p.id === selectedPlayerId);
 
-  // Sorting Leaderboard by Overall Contributions: Goals + Assists + D's - Turnovers
+  // Sorting Leaderboard by Overall Contributions: Goals + Assists - Turnovers
   const leaderboardPlayers = [...players].sort((a, b) => {
-    const scoreA = a.goals + a.assists + a.ds - a.turnovers;
-    const scoreB = b.goals + b.assists + b.ds - b.turnovers;
+    const scoreA = a.goals + a.assists - a.turnovers;
+    const scoreB = b.goals + b.assists - b.turnovers;
     return scoreB - scoreA;
   });
 
@@ -343,9 +432,11 @@ export default function App() {
           </svg>
           <span className="text-xl font-black tracking-widest text-sky-400">DISCSTAT</span>
         </div>
-        <div className="flex items-center space-x-1 bg-slate-800/80 px-2.5 py-1 rounded-full border border-slate-700">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-[10px] font-black text-slate-300 font-mono tracking-wider">LOCAL DATA</span>
+        <div className="flex items-center space-x-1.5 bg-slate-800/80 px-2.5 py-1 rounded-full border border-slate-700">
+          <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${isOnline ? "bg-emerald-400" : "bg-amber-400"}`} />
+          <span className="text-[9px] font-black text-slate-305 font-mono tracking-wider">
+            {isOnline ? "CLOUD SYNCED" : "OFFLINE CACHE"}
+          </span>
         </div>
       </header>
 
@@ -792,10 +883,7 @@ export default function App() {
                         <span>{player.name}</span>
                         <button
                           type="button"
-                          onClick={() => {
-                            setPlayers(players.filter(p => p.id !== player.id));
-                            triggerToast(`Removed ${player.name} from registered roster`);
-                          }}
+                          onClick={() => handleRemovePlayer(player.id, player.name)}
                           className="text-slate-300 hover:text-rose-500 p-1 active:scale-90 transition-transform"
                           title="Unregister Player"
                         >
@@ -954,14 +1042,12 @@ export default function App() {
                             <div className="bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-md text-[9px] font-mono font-bold text-slate-500 flex space-x-2">
                               <span className="text-emerald-700">G:{p.goals}</span>
                               <span className="text-sky-700">A:{p.assists}</span>
-                              <span className="text-indigo-700">D:{p.ds}</span>
                               <span className="text-rose-700">T:{p.turnovers}</span>
-                              <span className="text-teal-700">DP:{p.drops ?? 0}</span>
                             </div>
                           </div>
 
                           {/* Quick touch point action logger layout */}
-                          <div className="grid grid-cols-5 gap-1.5">
+                          <div className="grid grid-cols-3 gap-1.5">
                             {/* +Goal */}
                             <button
                               type="button"
@@ -984,17 +1070,6 @@ export default function App() {
                               <span className="text-[11px] font-black">+A</span>
                             </button>
 
-                            {/* +D (Block) */}
-                            <button
-                              type="button"
-                              onClick={() => sidelineLogStat(p.id, "ds", 1)}
-                              className="bg-indigo-500 hover:bg-indigo-600 active:scale-90 text-white rounded-xl py-2 font-black text-xs shadow-sm flex flex-col items-center justify-center transition-all"
-                              title="Log Defensive Block"
-                            >
-                              <span className="text-[8px] font-bold text-indigo-100 leading-none">D-BLK</span>
-                              <span className="text-[11px] font-black">+D</span>
-                            </button>
-
                             {/* +Turnover */}
                             <button
                               type="button"
@@ -1004,17 +1079,6 @@ export default function App() {
                             >
                               <span className="text-[8px] font-bold text-rose-100 leading-none">TURN</span>
                               <span className="text-[11px] font-black">+T</span>
-                            </button>
-
-                            {/* +Drop */}
-                            <button
-                              type="button"
-                              onClick={() => sidelineLogStat(p.id, "drops", 1)}
-                              className="bg-teal-500 hover:bg-teal-600 active:scale-90 text-white rounded-xl py-2 font-black text-xs shadow-sm flex flex-col items-center justify-center transition-all"
-                              title="Log Dropped Pass"
-                            >
-                              <span className="text-[8px] font-bold text-teal-100 leading-none">DROP</span>
-                              <span className="text-[11px] font-black">+DP</span>
                             </button>
                           </div>
                         </div>
@@ -1046,7 +1110,7 @@ export default function App() {
                 </div>
 
                 {selectedPlayer ? (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-3 gap-3">
                     {/* Goals */}
                     <div className="bg-emerald-50/50 border border-emerald-100/60 p-3 rounded-xl text-center space-y-1 shadow-sm">
                       <span className="text-[9px] font-black text-emerald-800 tracking-wider uppercase">Goals</span>
@@ -1091,31 +1155,9 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* D's (Blocks) */}
-                    <div className="bg-indigo-50/50 border border-indigo-100/60 p-3 rounded-xl text-center space-y-1 shadow-sm">
-                      <span className="text-[9px] font-black text-indigo-800 tracking-wider uppercase">D's (Blocks)</span>
-                      <div className="text-2xl font-black text-indigo-900">{selectedPlayer.ds}</div>
-                      <div className="flex space-x-1">
-                        <button
-                          type="button"
-                          onClick={() => adjustStat("ds", -1)}
-                          className="flex-1 bg-white hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-lg font-bold py-1 text-xs active:scale-95 transition-transform"
-                        >
-                          -
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => adjustStat("ds", 1)}
-                          className="flex-1 bg-indigo-600 text-white rounded-lg font-black py-1 text-xs hover:bg-indigo-700 active:scale-95 transition-transform"
-                        >
-                          +1
-                        </button>
-                      </div>
-                    </div>
-
                     {/* Turnovers */}
                     <div className="bg-rose-50/50 border border-rose-100/60 p-3 rounded-xl text-center space-y-1 shadow-sm">
-                      <span className="text-[9px] font-black text-rose-800 tracking-wider uppercase">Turnovers</span>
+                      <span className="text-[9px] font-black text-rose-800 tracking-wider uppercase">Turns</span>
                       <div className="text-2xl font-black text-rose-900">{selectedPlayer.turnovers}</div>
                       <div className="flex space-x-1">
                         <button
@@ -1135,28 +1177,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Drops */}
-                    <div className="bg-teal-50/50 border border-teal-100/60 p-3 rounded-xl text-center space-y-1 shadow-sm">
-                      <span className="text-[9px] font-black text-teal-800 tracking-wider uppercase">Drops</span>
-                      <div className="text-2xl font-black text-teal-900">{selectedPlayer.drops ?? 0}</div>
-                      <div className="flex space-x-1">
-                        <button
-                          type="button"
-                          onClick={() => adjustStat("drops", -1)}
-                          className="flex-1 bg-white hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-lg font-bold py-1 text-xs active:scale-95 transition-transform"
-                        >
-                          -
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => adjustStat("drops", 1)}
-                          className="flex-1 bg-teal-600 text-white rounded-lg font-black py-1 text-xs hover:bg-teal-700 active:scale-95 transition-transform"
-                        >
-                          +1
-                        </button>
-                      </div>
-                    </div>
-
                   </div>
                 ) : (
                   <p className="text-xs text-slate-400 italic text-center py-2">No player selected for detailed stat edits.</p>
@@ -1170,9 +1190,7 @@ export default function App() {
                   <div className="flex items-center text-[9px] text-slate-400 font-bold space-x-1.5">
                     <span>G:Goals</span>
                     <span>A:Assists</span>
-                    <span>D:Ds</span>
-                    <span>T:Turnovers</span>
-                    <span>DP:Drops</span>
+                    <span>T:Turns</span>
                   </div>
                 </div>
 
@@ -1181,36 +1199,32 @@ export default function App() {
                     <thead>
                       <tr className="border-b border-slate-100 text-slate-400 font-bold">
                         <th className="py-2 pl-1 text-[11px]">Player</th>
-                        <th className="py-2 text-center w-8 text-[11px]">G</th>
-                        <th className="py-2 text-center w-8 text-[11px]">A</th>
-                        <th className="py-2 text-center w-8 text-[11px]">D</th>
-                        <th className="py-2 text-center w-8 text-[11px]">T</th>
-                        <th className="py-2 text-center w-8 text-[11px]">DP</th>
+                        <th className="py-2 text-center w-12 text-[11px]">G</th>
+                        <th className="py-2 text-center w-12 text-[11px]">A</th>
+                        <th className="py-2 text-center w-12 text-[11px]">T</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50 text-slate-600 font-semibold">
                       {players.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="py-6 text-center text-slate-400 italic text-[11px]">
+                          <td colSpan={4} className="py-6 text-center text-slate-400 italic text-[11px]">
                             No player stats logged yet.
                           </td>
                         </tr>
                       ) : (
                         [...players]
                           .sort((a, b) => {
-                            // Sort by overall positive contribution: goals + assists + ds - (turnovers + drops)
-                            const contributionA = a.goals + a.assists + a.ds - (a.turnovers + (a.drops ?? 0));
-                            const contributionB = b.goals + b.assists + b.ds - (b.turnovers + (b.drops ?? 0));
+                            // Sort by overall positive contribution: goals + assists - turnovers
+                            const contributionA = a.goals + a.assists - a.turnovers;
+                            const contributionB = b.goals + b.assists - b.turnovers;
                             return contributionB - contributionA;
                           })
                           .map(p => (
                             <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="py-2.5 pl-1 font-extrabold text-slate-800 text-[11px] truncate max-w-[100px]">{p.name}</td>
+                              <td className="py-2.5 pl-1 font-extrabold text-slate-800 text-[11px] truncate max-w-[150px]">{p.name}</td>
                               <td className="py-2.5 text-center text-emerald-600 font-bold text-[11px]">{p.goals}</td>
                               <td className="py-2.5 text-center text-sky-600 font-bold text-[11px]">{p.assists}</td>
-                              <td className="py-2.5 text-center text-indigo-600 font-bold text-[11px]">{p.ds}</td>
                               <td className="py-2.5 text-center text-rose-500 font-bold text-[11px]">{p.turnovers}</td>
-                              <td className="py-2.5 text-center text-teal-600 font-bold text-[11px]">{p.drops ?? 0}</td>
                             </tr>
                           ))
                       )}
@@ -1282,12 +1296,16 @@ export default function App() {
                                 <span className="text-[9px] font-black text-rose-700 uppercase px-1">Delete?</span>
                                 <button
                                   type="button"
-                                  onClick={(e) => {
+                                  onClick={async (e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    setMatches(matches.filter(item => item.id !== m.id));
-                                    setDeletingMatchId(null);
-                                    triggerToast("Deleted scrimmage record");
+                                    try {
+                                      await deleteDocument("matches", m.id);
+                                      setDeletingMatchId(null);
+                                      triggerToast("Deleted scrimmage record");
+                                    } catch (err) {
+                                      triggerToast("Error deleting scrimmage record.");
+                                    }
                                   }}
                                   className="bg-rose-600 hover:bg-rose-700 text-white font-black text-[9px] px-2 py-1 rounded transition-colors"
                                 >
@@ -1374,48 +1392,15 @@ export default function App() {
                   </button>
                 </div>
               </div>
-
-              {/* Android Add to Home Screen Instructions */}
-              <div className="bg-gradient-to-br from-slate-900 to-indigo-950 text-white p-5 rounded-3xl shadow-lg border border-slate-800 space-y-4">
-                <div className="flex items-center space-x-2.5">
-                  <Award className="w-6 h-6 text-sky-400" />
-                  <h3 className="text-lg font-black tracking-wide">Run as Android Home App</h3>
-                </div>
-                <p className="text-xs text-slate-300 leading-relaxed font-semibold">
-                  Make this tool feel like a premium native utility on your phone! By doing this, you can open it directly from your Android home screen with zero internet connection required, right on the field.
-                </p>
-
-                <div className="border-t border-slate-800 pt-3 space-y-3 text-xs font-bold">
-                  <div className="flex items-start space-x-2.5">
-                    <span className="bg-sky-500/20 text-sky-400 w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0">1</span>
-                    <p className="text-slate-300">
-                      Open this application in Chrome or Firefox on your Android browser, or open the downloaded Standalone HTML app.
-                    </p>
-                  </div>
-                  <div className="flex items-start space-x-2.5">
-                    <span className="bg-sky-500/20 text-sky-400 w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0">2</span>
-                    <p className="text-slate-300">
-                      Tap the <strong className="text-white">three vertical dots</strong> (&vellip;) in Chrome's top-right corner, or bottom-right in Firefox.
-                    </p>
-                  </div>
-                  <div className="flex items-start space-x-2.5">
-                    <span className="bg-sky-500/20 text-sky-400 w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0">3</span>
-                    <p className="text-slate-300">
-                      Select <strong className="text-sky-400">"Add to Home screen"</strong> from the popup option menu.
-                    </p>
-                  </div>
-                  <div className="flex items-start space-x-2.5">
-                    <span className="bg-sky-500/20 text-sky-400 w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0">4</span>
-                    <p className="text-slate-300">
-                      Give it a clean name like <strong className="text-white">"DiscStat"</strong> and press Add. The icon is now ready to use offline!
-                    </p>
-                  </div>
-                </div>
-              </div>
             </motion.div>
           )}
 
         </AnimatePresence>
+
+        {/* FOOTER */}
+        <footer className="text-center pt-8 pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+          Inspired by Wits Ultimate
+        </footer>
       </main>
 
       {/* BOTTOM THUMB NAVIGATION RAIL */}

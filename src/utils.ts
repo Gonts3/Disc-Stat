@@ -1,26 +1,15 @@
 import { Player, AttendanceRecord, PracticeLog, ScrimmageMatch } from "./types";
 
-export const DEFAULT_PLAYERS: Player[] = [
-  { id: "1", name: "Alex Carter", goals: 14, assists: 18, ds: 9, turnovers: 4, throwaways: 3, drops: 2 },
-  { id: "2", name: "Jordan Miller", goals: 10, assists: 15, ds: 6, turnovers: 5, throwaways: 4, drops: 1 },
-  { id: "3", name: "Taylor Reece", goals: 22, assists: 8, ds: 14, turnovers: 3, throwaways: 2, drops: 4 },
-  { id: "4", name: "Sam Rivera", goals: 6, assists: 25, ds: 5, turnovers: 7, throwaways: 6, drops: 2 },
-  { id: "5", name: "Chris Evans", goals: 15, assists: 12, ds: 11, turnovers: 4, throwaways: 3, drops: 3 },
-  { id: "6", name: "Morgan Taylor", goals: 8, assists: 9, ds: 17, turnovers: 2, throwaways: 1, drops: 1 },
-  { id: "7", name: "Casey Zhang", goals: 12, assists: 11, ds: 7, turnovers: 5, throwaways: 4, drops: 2 },
-  { id: "8", name: "Pat Kennedy", goals: 5, assists: 20, ds: 4, turnovers: 8, throwaways: 5, drops: 3 },
-  { id: "9", name: "Drew Sterling", goals: 19, assists: 6, ds: 10, turnovers: 4, throwaways: 3, drops: 2 },
-  { id: "10", name: "Jamie Vance", goals: 9, assists: 13, ds: 8, turnovers: 6, throwaways: 4, drops: 2 }
-];
+export const DEFAULT_PLAYERS: Player[] = [];
 
 export function exportToCSV(players: Player[], attendance: AttendanceRecord[], logs: PracticeLog[], matches: ScrimmageMatch[]) {
   // 1. Players Stats CSV
   let csvContent = "";
   
   csvContent += "=== PLAYER STATS ===\n";
-  csvContent += "Player Name,Goals,Assists,D's (Deflection/Blocks),Turnovers,Throwaways (Bad Throws),Drops\n";
+  csvContent += "Player Name,Goals,Assists,Turns\n";
   players.forEach(p => {
-    csvContent += `"${p.name.replace(/"/g, '""')}",${p.goals},${p.assists},${p.ds},${p.turnovers},${p.throwaways ?? 0},${p.drops ?? 0}\n`;
+    csvContent += `"${p.name.replace(/"/g, '""')}",${p.goals},${p.assists},${p.turnovers}\n`;
   });
 
   // 2. Attendance CSV
@@ -122,6 +111,7 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
     }
   </style>
 </head>
+<script id="embedded-data" type="application/json">\${serializedData}</script>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col pb-24">
 
   <!-- TOP HEADER BAR -->
@@ -390,54 +380,34 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
         </div>
 
         <!-- Grid of Large Thumb-Friendly Counters -->
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-3 gap-2.5">
           <!-- Goals (G) -->
-          <div class="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl flex flex-col justify-between items-center">
-            <span class="text-xs font-extrabold text-emerald-800 uppercase tracking-widest">GOALS</span>
-            <div class="text-4xl font-black text-emerald-900 my-2" id="stat-val-goals">0</div>
-            <div class="flex space-x-2 w-full">
-              <button onclick="incrementStat('goals', -1)" class="flex-1 bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-200 font-black py-2 rounded-xl text-lg">-</button>
-              <button onclick="incrementStat('goals', 1)" class="flex-1 bg-emerald-600 text-white font-black py-2 rounded-xl text-lg hover:bg-emerald-700 active:scale-95 transition-all shadow-sm">+1</button>
+          <div class="bg-emerald-50 border border-emerald-100 p-3 rounded-2xl flex flex-col justify-between items-center text-center">
+            <span class="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider">GOALS</span>
+            <div class="text-3xl font-black text-emerald-900 my-1" id="stat-val-goals">0</div>
+            <div class="flex space-x-1 w-full">
+              <button onclick="incrementStat('goals', -1)" class="flex-1 bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-200 font-bold py-1.5 rounded-xl text-sm">-</button>
+              <button onclick="incrementStat('goals', 1)" class="flex-1 bg-emerald-600 text-white font-black py-1.5 rounded-xl text-sm hover:bg-emerald-700 active:scale-95 transition-all shadow-sm">+1</button>
             </div>
           </div>
 
           <!-- Assists (A) -->
-          <div class="bg-sky-50 border border-sky-100 p-4 rounded-2xl flex flex-col justify-between items-center">
-            <span class="text-xs font-extrabold text-sky-800 uppercase tracking-widest">ASSISTS</span>
-            <div class="text-4xl font-black text-sky-900 my-2" id="stat-val-assists">0</div>
-            <div class="flex space-x-2 w-full">
-              <button onclick="incrementStat('assists', -1)" class="flex-1 bg-white hover:bg-sky-100 text-sky-900 border border-sky-200 font-black py-2 rounded-xl text-lg">-</button>
-              <button onclick="incrementStat('assists', 1)" class="flex-1 bg-sky-600 text-white font-black py-2 rounded-xl text-lg hover:bg-sky-700 active:scale-95 transition-all shadow-sm">+1</button>
-            </div>
-          </div>
-
-          <!-- D's (D) -->
-          <div class="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl flex flex-col justify-between items-center">
-            <span class="text-xs font-extrabold text-indigo-800 uppercase tracking-widest">D'S (BLOCKS)</span>
-            <div class="text-4xl font-black text-indigo-900 my-2" id="stat-val-ds">0</div>
-            <div class="flex space-x-2 w-full">
-              <button onclick="incrementStat('ds', -1)" class="flex-1 bg-white hover:bg-indigo-100 text-indigo-900 border border-indigo-200 font-black py-2 rounded-xl text-lg">-</button>
-              <button onclick="incrementStat('ds', 1)" class="flex-1 bg-indigo-600 text-white font-black py-2 rounded-xl text-lg hover:bg-indigo-700 active:scale-95 transition-all shadow-sm">+1</button>
+          <div class="bg-sky-50 border border-sky-100 p-3 rounded-2xl flex flex-col justify-between items-center text-center">
+            <span class="text-[10px] font-extrabold text-sky-800 uppercase tracking-wider">ASSISTS</span>
+            <div class="text-3xl font-black text-sky-900 my-1" id="stat-val-assists">0</div>
+            <div class="flex space-x-1 w-full">
+              <button onclick="incrementStat('assists', -1)" class="flex-1 bg-white hover:bg-sky-100 text-sky-900 border border-sky-200 font-bold py-1.5 rounded-xl text-sm">-</button>
+              <button onclick="incrementStat('assists', 1)" class="flex-1 bg-sky-600 text-white font-black py-1.5 rounded-xl text-sm hover:bg-sky-700 active:scale-95 transition-all shadow-sm">+1</button>
             </div>
           </div>
 
           <!-- Turnovers (T) -->
-          <div class="bg-rose-50 border border-rose-100 p-4 rounded-2xl flex flex-col justify-between items-center">
-            <span class="text-xs font-extrabold text-rose-800 uppercase tracking-widest">TURNOVERS</span>
-            <div class="text-4xl font-black text-rose-900 my-2" id="stat-val-turnovers">0</div>
-            <div class="flex space-x-2 w-full">
-              <button onclick="incrementStat('turnovers', -1)" class="flex-1 bg-white hover:bg-rose-100 text-rose-900 border border-rose-200 font-black py-2 rounded-xl text-lg">-</button>
-              <button onclick="incrementStat('turnovers', 1)" class="flex-1 bg-rose-600 text-white font-black py-2 rounded-xl text-lg hover:bg-rose-700 active:scale-95 transition-all shadow-sm">+1</button>
-            </div>
-          </div>
-
-          <!-- Drops (DP) -->
-          <div class="bg-teal-50 border border-teal-100 p-4 rounded-2xl flex flex-col justify-between items-center col-span-2 sm:col-span-1">
-            <span class="text-xs font-extrabold text-teal-800 uppercase tracking-widest">DROPS</span>
-            <div class="text-4xl font-black text-teal-900 my-2" id="stat-val-drops">0</div>
-            <div class="flex space-x-2 w-full">
-              <button onclick="incrementStat('drops', -1)" class="flex-1 bg-white hover:bg-teal-100 text-teal-900 border border-teal-200 font-black py-2 rounded-xl text-lg">-</button>
-              <button onclick="incrementStat('drops', 1)" class="flex-1 bg-teal-600 text-white font-black py-2 rounded-xl text-lg hover:bg-teal-700 active:scale-95 transition-all shadow-sm">+1</button>
+          <div class="bg-rose-50 border border-rose-100 p-3 rounded-2xl flex flex-col justify-between items-center text-center">
+            <span class="text-[10px] font-extrabold text-rose-800 uppercase tracking-wider">TURNS</span>
+            <div class="text-3xl font-black text-rose-900 my-1" id="stat-val-turnovers">0</div>
+            <div class="flex space-x-1 w-full">
+              <button onclick="incrementStat('turnovers', -1)" class="flex-1 bg-white hover:bg-rose-100 text-rose-900 border border-rose-200 font-bold py-1.5 rounded-xl text-sm">-</button>
+              <button onclick="incrementStat('turnovers', 1)" class="flex-1 bg-rose-600 text-white font-black py-1.5 rounded-xl text-sm hover:bg-rose-700 active:scale-95 transition-all shadow-sm">+1</button>
             </div>
           </div>
         </div>
@@ -451,11 +421,9 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
             <thead>
               <tr class="border-b border-slate-100 text-slate-400 font-semibold">
                 <th class="py-2">Player</th>
-                <th class="py-2 text-center">G</th>
-                <th class="py-2 text-center">A</th>
-                <th class="py-2 text-center">D</th>
-                <th class="py-2 text-center">T</th>
-                <th class="py-2 text-center">DP</th>
+                <th class="py-2 text-center w-12">G</th>
+                <th class="py-2 text-center w-12">A</th>
+                <th class="py-2 text-center w-12">T</th>
               </tr>
             </thead>
             <tbody id="stats-leaderboard-body" class="divide-y divide-slate-50 text-slate-600 font-medium">
@@ -503,41 +471,12 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
           <span>Reset Phone Cache & Load original file data</span>
         </button>
       </div>
-
-      <!-- Add to Home Screen Instructions for Android -->
-      <div class="bg-gradient-to-br from-sky-500 to-indigo-600 text-white p-5 rounded-2xl shadow-md space-y-3">
-        <div class="flex items-center space-x-2">
-          <!-- Smartphone Icon -->
-          <svg class="w-6 h-6 text-sky-200" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-          </svg>
-          <h3 class="text-lg font-black tracking-wide">Add to Home Screen</h3>
-        </div>
-        <p class="text-xs text-sky-100 leading-relaxed font-medium">
-          Make this feel like a native app on your Android phone! This lets you open it instantly on the sideline with zero internet required.
-        </p>
-        
-        <div class="border-t border-sky-400/40 pt-3 space-y-2.5 text-xs font-semibold">
-          <div class="flex items-start space-x-2">
-            <span class="bg-sky-400/50 w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0">1</span>
-            <p class="text-sky-100">Open the app or the downloaded HTML file in Chrome or Firefox on Android.</p>
-          </div>
-          <div class="flex items-start space-x-2">
-            <span class="bg-sky-400/50 w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0">2</span>
-            <p class="text-sky-100">Tap the <strong class="text-white">three dots menu button</strong> (&vellip;) in the top-right corner of Chrome (or bottom-right in Firefox).</p>
-          </div>
-          <div class="flex items-start space-x-2">
-            <span class="bg-sky-400/50 w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0">3</span>
-            <p class="text-sky-100">Select <strong class="text-white">"Add to Home screen"</strong> from the menu.</p>
-          </div>
-          <div class="flex items-start space-x-2">
-            <span class="bg-sky-400/50 w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0">4</span>
-            <p class="text-sky-100">Give it a name like <strong class="text-white">DiscStat</strong>. An icon will be added to your home screen, opening in a distraction-free window!</p>
-          </div>
-        </div>
-      </div>
     </section>
 
+    <!-- FOOTER -->
+    <footer class="text-center pt-8 pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+      Inspired by Wits Ultimate
+    </footer>
   </main>
 
   <!-- BOTTOM THUMB NAVIGATION RAIL -->
@@ -566,7 +505,15 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
   <!-- SCRIPT LOGIC -->
   <script>
     // Load initial embedded data, otherwise look into localStorage, otherwise fallback
-    let initialEmbeddedData = JSON.parse(decodeURIComponent("${encodeURIComponent(serializedData)}"));
+    let initialEmbeddedData = { players: [], attendance: [], practiceLogs: [], matches: [] };
+    try {
+      const embeddedEl = document.getElementById('embedded-data');
+      if (embeddedEl && embeddedEl.textContent) {
+        initialEmbeddedData = JSON.parse(embeddedEl.textContent.trim());
+      }
+    } catch (e) {
+      console.error("Error loading embedded data:", e);
+    }
     let appData = {
       players: [],
       attendance: [],
@@ -593,12 +540,13 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
         try {
           appData = JSON.parse(stored);
           
-          // Ensure any missing fields on players are defaulted (like drops or throwaways)
+          // Ensure any missing fields on players are defaulted
           if (appData && Array.isArray(appData.players)) {
             appData.players = appData.players.map(p => ({
               ...p,
-              throwaways: p.throwaways ?? 0,
-              drops: p.drops ?? 0
+              goals: p.goals ?? 0,
+              assists: p.assists ?? 0,
+              turnovers: p.turnovers ?? 0
             }));
           }
           
@@ -1264,7 +1212,7 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
         div.innerHTML = \`
           <div class="truncate pr-2">
             <span class="font-extrabold text-slate-800 text-sm block truncate max-w-[150px]">\${p.name}</span>
-            <span class="text-[10px] font-mono font-bold text-slate-400">G:\${p.goals || 0} | A:\${p.assists || 0} | D:\${p.ds || 0} | T:\${p.turnovers || 0} | DP:\${p.drops || 0}</span>
+            <span class="text-[10px] font-mono font-bold text-slate-400">G:\${p.goals || 0} | A:\${p.assists || 0} | T:\${p.turnovers || 0}</span>
           </div>
           <div class="flex items-center space-x-1.5 self-end sm:self-auto">
             <button type="button" onclick="sidelineLogStat('\${p.id}', 'goals', 1)" class="w-10 h-10 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs shadow-sm flex flex-col items-center justify-center active:scale-90 transition-transform">
@@ -1275,17 +1223,9 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
               <span class="text-[8px] font-bold text-sky-100">ASST</span>
               <span class="text-xs -mt-1 font-black">+A</span>
             </button>
-            <button type="button" onclick="sidelineLogStat('\${p.id}', 'ds', 1)" class="w-10 h-10 rounded-full bg-indigo-500 hover:bg-indigo-600 text-white font-black text-xs shadow-sm flex flex-col items-center justify-center active:scale-90 transition-transform">
-              <span class="text-[8px] font-bold text-indigo-100">DEF</span>
-              <span class="text-xs -mt-1 font-black">+D</span>
-            </button>
             <button type="button" onclick="sidelineLogStat('\${p.id}', 'turnovers', 1)" class="w-10 h-10 rounded-full bg-rose-500 hover:bg-rose-600 text-white font-black text-xs shadow-sm flex flex-col items-center justify-center active:scale-90 transition-transform">
               <span class="text-[8px] font-bold text-rose-100">TURN</span>
               <span class="text-xs -mt-1 font-black">+T</span>
-            </button>
-            <button type="button" onclick="sidelineLogStat('\${p.id}', 'drops', 1)" class="w-10 h-10 rounded-full bg-teal-500 hover:bg-teal-600 text-white font-black text-xs shadow-sm flex flex-col items-center justify-center active:scale-90 transition-transform">
-              <span class="text-[8px] font-bold text-teal-100">DROP</span>
-              <span class="text-xs -mt-1 font-black">+DP</span>
             </button>
           </div>
         \`;
@@ -1331,9 +1271,7 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
 
       document.getElementById('stat-val-goals').textContent = player.goals || 0;
       document.getElementById('stat-val-assists').textContent = player.assists || 0;
-      document.getElementById('stat-val-ds').textContent = player.ds || 0;
       document.getElementById('stat-val-turnovers').textContent = player.turnovers || 0;
-      document.getElementById('stat-val-drops').textContent = player.drops || 0;
     }
 
     function incrementStat(field, amount) {
@@ -1359,14 +1297,14 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
       tbody.innerHTML = '';
 
       if (appData.players.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-slate-400 italic">No players available.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="py-4 text-center text-slate-400 italic">No players available.</td></tr>';
         return;
       }
 
-      // Sort by Contributions Desc (Goals + Assists + Ds - Turnovers - Drops)
+      // Sort by Contributions Desc (Goals + Assists - Turnovers)
       const sorted = [...appData.players].sort((a,b) => {
-        const scoreA = (a.goals || 0) + (a.assists || 0) + (a.ds || 0) - (a.turnovers || 0) - (a.drops || 0);
-        const scoreB = (b.goals || 0) + (b.assists || 0) + (b.ds || 0) - (b.turnovers || 0) - (b.drops || 0);
+        const scoreA = (a.goals || 0) + (a.assists || 0) - (a.turnovers || 0);
+        const scoreB = (b.goals || 0) + (b.assists || 0) - (b.turnovers || 0);
         return scoreB - scoreA;
       });
 
@@ -1377,9 +1315,7 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
           <td class="py-2.5 font-bold text-slate-800 text-xs">\${p.name}</td>
           <td class="py-2.5 text-center text-emerald-600 font-bold">\${p.goals || 0}</td>
           <td class="py-2.5 text-center text-sky-600 font-bold">\${p.assists || 0}</td>
-          <td class="py-2.5 text-center text-indigo-600 font-bold">\${p.ds || 0}</td>
           <td class="py-2.5 text-center text-rose-500 font-bold">\${p.turnovers || 0}</td>
-          <td class="py-2.5 text-center text-teal-600 font-bold">\${p.drops || 0}</td>
         \`;
         tbody.appendChild(tr);
       });
@@ -1390,9 +1326,9 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
       let csvContent = "data:text/csv;charset=utf-8,";
       
       csvContent += "=== PLAYER STATS ===\\n";
-      csvContent += "Player Name,Goals,Assists,D's (Deflection/Blocks),Turnovers,Drops\\n";
+      csvContent += "Player Name,Goals,Assists,Turns\\n";
       appData.players.forEach(p => {
-        csvContent += \`"\${p.name.replace(/"/g, '""')}",\${p.goals},\${p.assists},\${p.ds},\${p.turnovers},\${p.drops || 0}\\n\`;
+        csvContent += \`"\${p.name.replace(/"/g, '""')}",\${p.goals || 0},\${p.assists || 0},\${p.turnovers || 0}\\n\`;
       });
 
       csvContent += "\\n=== ATTENDANCE RECORDS ===\\n";
@@ -1429,15 +1365,15 @@ export function generateSingleFileHTML(players: Player[], attendance: Attendance
     // Re-download this Single-File HTML with latest data bundled inside it!
     document.getElementById('export-html-btn').addEventListener('click', () => {
       // Re-generates the entire current markup but embeds the active localStorage snapshot!
-      // This is a beautiful recursive self-bundler!
       appData.exportTimestamp = Date.now();
-      const currentHTML = document.documentElement.outerHTML;
-      const scriptToModify = 'let initialEmbeddedData = JSON.parse(decodeURIComponent("' + encodeURIComponent(JSON.stringify(appData)) + '"));';
       
+      const embeddedEl = document.getElementById('embedded-data');
+      if (embeddedEl) {
+        embeddedEl.textContent = JSON.stringify(appData);
+      }
+      
+      const currentHTML = document.documentElement.outerHTML;
       let htmlCopy = \`<!DOCTYPE html>\\n<html lang="en">\\n\` + currentHTML + \`\\n</html>\`;
-      // Replace the initial embedded data definition in the script so the fresh file has current data baked-in!
-      const regex = /let initialEmbeddedData = JSON\.parse\(decodeURIComponent\("[\s\S]*?"\)\);/;
-      htmlCopy = htmlCopy.replace(regex, scriptToModify);
 
       const blob = new Blob([htmlCopy], { type: "text/html;charset=utf-8" });
       const link = document.createElement("a");
